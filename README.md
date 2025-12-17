@@ -42,7 +42,7 @@ pip install customtkinter torch langchain langchain-huggingface langchain-commun
 
 ### 실행
 ```bash
-python "사내 규정검색기 v8 claude 리팩토링.py"
+python "사내 규정검색기 v0.py"
 ```
 
 ---

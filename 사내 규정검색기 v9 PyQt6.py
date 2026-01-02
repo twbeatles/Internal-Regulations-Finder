@@ -28,11 +28,11 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QLineEdit, QTextEdit, QTabWidget, QFrame,
     QScrollArea, QProgressBar, QFileDialog, QMessageBox, QComboBox,
-    QCheckBox, QSpinBox, QTableWidget, QTableWidgetItem, QHeaderView,
-    QSplitter, QStackedWidget, QSizePolicy, QGraphicsDropShadowEffect
+    QCheckBox, QSpinBox, QTableWidget, QTableWidgetItem, QHeaderView, QSlider,
+    QSplitter, QStackedWidget, QSizePolicy, QGraphicsDropShadowEffect, QMenu
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QPropertyAnimation, QEasingCurve, QSize
-from PyQt6.QtGui import QFont, QIcon, QColor, QPalette, QAction
+from PyQt6.QtGui import QFont, QIcon, QColor, QPalette, QAction, QTextCursor, QTextCharFormat, QShortcut, QKeySequence
 
 if TYPE_CHECKING:
     from langchain_community.vectorstores import FAISS
@@ -376,6 +376,8 @@ class RegulationQASystem:
             return TaskResult(False, f"모델 로드 실패: {e}")
     
     def _get_cache_dir(self, folder: str) -> str:
+        if not self.model_id:
+            raise ValueError("모델이 로드되지 않았습니다")
         h1 = hashlib.md5(self.model_id.encode()).hexdigest()[:6]
         h2 = hashlib.md5(folder.encode()).hexdigest()[:6]
         return os.path.join(self.cache_path, f"{h2}_{h1}")
@@ -619,32 +621,102 @@ class SearchThread(QThread):
 # 스타일
 # ============================================================================
 DARK_STYLE = """
+/* 기본 위젯 */
 QMainWindow, QWidget { background-color: #1a1a2e; color: #eaeaea; }
+QLabel { color: #eaeaea; }
+
+/* 탭 위젯 */
 QTabWidget::pane { border: none; background: #16213e; border-radius: 8px; }
-QTabBar::tab { background: #0f3460; color: #aaa; padding: 10px 20px; margin-right: 2px; border-top-left-radius: 6px; border-top-right-radius: 6px; }
+QTabBar::tab { background: #0f3460; color: #aaa; padding: 12px 24px; margin-right: 2px; border-top-left-radius: 8px; border-top-right-radius: 8px; font-weight: bold; }
 QTabBar::tab:selected { background: #16213e; color: white; }
-QLineEdit { background: #0f3460; border: 2px solid #1a1a2e; border-radius: 8px; padding: 10px 15px; color: white; font-size: 14px; }
+QTabBar::tab:hover:!selected { background: #1a4a70; color: #ddd; }
+
+/* 입력 필드 */
+QLineEdit { background: #0f3460; border: 2px solid #1a1a2e; border-radius: 8px; padding: 10px 15px; color: white; font-size: 14px; selection-background-color: #e94560; }
 QLineEdit:focus { border-color: #e94560; }
+QLineEdit:disabled { background: #2a2a3e; color: #666; }
+
+/* 버튼 */
 QPushButton { background: #0f3460; color: white; border: none; border-radius: 6px; padding: 10px 20px; font-weight: bold; }
 QPushButton:hover { background: #e94560; }
+QPushButton:pressed { background: #c73a52; }
 QPushButton:disabled { background: #2a2a3e; color: #666; }
-QTextEdit { background: #0f3460; border: none; border-radius: 6px; padding: 10px; color: #eaeaea; }
+
+/* 텍스트 에디터 */
+QTextEdit { background: #0f3460; border: none; border-radius: 6px; padding: 10px; color: #eaeaea; selection-background-color: #e94560; }
+
+/* 프로그레스 바 */
 QProgressBar { background: #0f3460; border: none; border-radius: 4px; height: 8px; text-align: center; }
 QProgressBar::chunk { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #e94560, stop:1 #0f3460); border-radius: 4px; }
+
+/* 스크롤 영역 */
 QScrollArea { border: none; background: transparent; }
-QComboBox { background: #0f3460; border: 2px solid #1a1a2e; border-radius: 6px; padding: 8px; color: white; }
+
+/* 콤보박스 */
+QComboBox { background: #0f3460; border: 2px solid #1a1a2e; border-radius: 6px; padding: 8px 12px; color: white; min-width: 100px; }
 QComboBox:hover { border-color: #e94560; }
-QComboBox::drop-down { border: none; width: 30px; }
+QComboBox:focus { border-color: #e94560; }
+QComboBox::drop-down { border: none; width: 30px; subcontrol-origin: padding; subcontrol-position: center right; }
+QComboBox::down-arrow { image: none; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid #e94560; margin-right: 10px; }
+QComboBox QAbstractItemView { background: #0f3460; border: 2px solid #e94560; border-radius: 4px; selection-background-color: #e94560; color: white; padding: 4px; }
+
+/* 스핀박스 */
+QSpinBox { background: #0f3460; border: 2px solid #1a1a2e; border-radius: 6px; padding: 6px 10px; color: white; min-width: 80px; }
+QSpinBox:hover { border-color: #e94560; }
+QSpinBox:focus { border-color: #e94560; }
+QSpinBox::up-button, QSpinBox::down-button { background: #1a4a70; border: none; width: 20px; border-radius: 3px; }
+QSpinBox::up-button:hover, QSpinBox::down-button:hover { background: #e94560; }
+QSpinBox::up-arrow { image: none; border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 5px solid white; }
+QSpinBox::down-arrow { image: none; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid white; }
+
+/* 체크박스 */
 QCheckBox { color: #eaeaea; spacing: 8px; }
-QCheckBox::indicator { width: 20px; height: 20px; border-radius: 4px; background: #0f3460; }
-QCheckBox::indicator:checked { background: #e94560; }
-QTableWidget { background: #16213e; border: none; gridline-color: #0f3460; }
-QTableWidget::item { padding: 8px; }
-QTableWidget::item:selected { background: #e94560; }
+QCheckBox::indicator { width: 20px; height: 20px; border-radius: 4px; background: #0f3460; border: 2px solid #1a1a2e; }
+QCheckBox::indicator:hover { border-color: #e94560; }
+QCheckBox::indicator:checked { background: #e94560; border-color: #e94560; }
+
+/* 테이블 */
+QTableWidget { background: #16213e; border: none; gridline-color: #0f3460; alternate-background-color: #1a2845; }
+QTableWidget::item { padding: 8px; border: none; }
+QTableWidget::item:selected { background: #e94560; color: white; }
+QTableWidget::item:hover:!selected { background: #1a4a70; }
 QHeaderView::section { background: #0f3460; color: white; padding: 10px; border: none; font-weight: bold; }
-QLabel { color: #eaeaea; }
-QFrame#card { background: #16213e; border-radius: 10px; }
-QFrame#statCard { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0f3460, stop:1 #16213e); border-radius: 10px; }
+QHeaderView::section:hover { background: #e94560; }
+
+/* 스크롤바 - 세로 */
+QScrollBar:vertical { background: #1a1a2e; width: 12px; border-radius: 6px; margin: 2px; }
+QScrollBar::handle:vertical { background: #0f3460; border-radius: 5px; min-height: 30px; margin: 2px; }
+QScrollBar::handle:vertical:hover { background: #e94560; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }
+
+/* 스크롤바 - 가로 */
+QScrollBar:horizontal { background: #1a1a2e; height: 12px; border-radius: 6px; margin: 2px; }
+QScrollBar::handle:horizontal { background: #0f3460; border-radius: 5px; min-width: 30px; margin: 2px; }
+QScrollBar::handle:horizontal:hover { background: #e94560; }
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0px; }
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: none; }
+
+/* 툴팁 */
+QToolTip { background: #16213e; color: white; border: 1px solid #e94560; padding: 8px 12px; border-radius: 6px; font-size: 12px; }
+
+/* 메시지박스/다이얼로그 */
+QMessageBox { background: #1a1a2e; }
+QMessageBox QLabel { color: #eaeaea; }
+QMessageBox QPushButton { min-width: 80px; }
+
+/* 카드 프레임 */
+QFrame#card { background: #16213e; border-radius: 12px; border: 1px solid #0f3460; }
+QFrame#card:hover { border-color: #1a4a70; }
+QFrame#statCard { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0f3460, stop:1 #16213e); border-radius: 12px; border: 1px solid #1a4a70; }
+QFrame#resultCard { background: #16213e; border-radius: 12px; border: 1px solid #0f3460; }
+QFrame#resultCard:hover { border-color: #e94560; }
+
+/* 슬라이더 */
+QSlider::groove:horizontal { background: #0f3460; height: 6px; border-radius: 3px; }
+QSlider::handle:horizontal { background: #e94560; width: 16px; height: 16px; margin: -5px 0; border-radius: 8px; }
+QSlider::handle:horizontal:hover { background: #ff6b8a; }
+QSlider::sub-page:horizontal { background: #e94560; border-radius: 3px; }
 """
 
 
@@ -685,68 +757,253 @@ class SearchHistory:
 # 결과 카드
 # ============================================================================
 class ResultCard(QFrame):
+    """검색 결과를 표시하는 카드 위젯"""
+    
     def __init__(self, idx: int, data: Dict, on_copy, font_size: int = 12, query: str = ""):
         super().__init__()
-        self.setObjectName("card")
+        self.setObjectName("resultCard")
         self.data = data
+        self.query = query
+        
+        # 그림자 효과
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(15)
+        shadow.setColor(QColor(0, 0, 0, 80))
+        shadow.setOffset(0, 2)
+        self.setGraphicsEffect(shadow)
+        
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(15, 12, 15, 12)
-        layout.setSpacing(8)
+        layout.setContentsMargins(18, 14, 18, 14)
+        layout.setSpacing(10)
         
         # 헤더
         header = QHBoxLayout()
-        title = QLabel(f"▶ 결과 {idx}")
-        title.setFont(QFont("", 12, QFont.Weight.Bold))
-        header.addWidget(title)
+        header.setSpacing(12)
         
+        # 결과 번호 배지
+        badge = QLabel(f"{idx}")
+        badge.setFixedSize(28, 28)
+        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        badge.setStyleSheet("""
+            background: #e94560; 
+            color: white; 
+            border-radius: 14px; 
+            font-weight: bold;
+            font-size: 12px;
+        """)
+        header.addWidget(badge)
+        
+        # 파일명
         source = QLabel(data['source'])
-        source.setStyleSheet("color: #e94560; font-size: 11px;")
+        source.setStyleSheet("color: #e94560; font-size: 12px; font-weight: bold;")
+        if data.get('path'):
+            source.setToolTip(f"📁 {data['path']}\n더블클릭으로 파일 열기")
+            source.setCursor(Qt.CursorShape.PointingHandCursor)
+            source.mousePressEvent = lambda e: FileUtils.open_file(data['path']) if e.button() == Qt.MouseButton.LeftButton else None
         header.addWidget(source)
-        
-        # 점수
-        score = int(data.get('score', 0) * 100)
-        score_color = "#10b981" if score >= 70 else "#f59e0b" if score >= 40 else "#ef4444"
-        score_lbl = QLabel(f"{score}%")
-        score_lbl.setStyleSheet(f"color: {score_color}; font-weight: bold;")
-        header.addWidget(score_lbl)
-        
-        pbar = QProgressBar()
-        pbar.setFixedWidth(60)
-        pbar.setFixedHeight(8)
-        pbar.setValue(score)
-        pbar.setTextVisible(False)
-        pbar.setStyleSheet(f"QProgressBar::chunk {{ background: {score_color}; border-radius: 4px; }}")
-        header.addWidget(pbar)
         
         header.addStretch()
         
-        # 버튼
+        # 점수 표시
+        score = int(data.get('score', 0) * 100)
+        score_color = "#10b981" if score >= 70 else "#f59e0b" if score >= 40 else "#ef4444"
+        
+        score_container = QHBoxLayout()
+        score_container.setSpacing(8)
+        
+        pbar = QProgressBar()
+        pbar.setFixedWidth(80)
+        pbar.setFixedHeight(8)
+        pbar.setValue(score)
+        pbar.setTextVisible(False)
+        pbar.setStyleSheet(f"""
+            QProgressBar {{ background: #0f3460; border-radius: 4px; }}
+            QProgressBar::chunk {{ background: {score_color}; border-radius: 4px; }}
+        """)
+        score_container.addWidget(pbar)
+        
+        score_lbl = QLabel(f"{score}%")
+        score_lbl.setStyleSheet(f"color: {score_color}; font-weight: bold; font-size: 13px;")
+        score_lbl.setToolTip(f"유사도: {score}%\n벡터: {int(data.get('vec_score', 0)*100)}% | 키워드: {int(data.get('bm25_score', 0)*100)}%")
+        score_container.addWidget(score_lbl)
+        
+        header.addLayout(score_container)
+        
+        # 버튼들
+        btn_container = QHBoxLayout()
+        btn_container.setSpacing(6)
+        
         copy_btn = QPushButton("📋 복사")
-        copy_btn.setFixedHeight(28)
+        copy_btn.setFixedHeight(30)
+        copy_btn.setFixedWidth(75)
+        copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         copy_btn.clicked.connect(lambda: on_copy(data['content']))
-        header.addWidget(copy_btn)
+        btn_container.addWidget(copy_btn)
         
         if data.get('path'):
             open_btn = QPushButton("📂 열기")
-            open_btn.setFixedHeight(28)
+            open_btn.setFixedHeight(30)
+            open_btn.setFixedWidth(75)
+            open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             open_btn.clicked.connect(lambda: FileUtils.open_file(data['path']))
-            header.addWidget(open_btn)
+            btn_container.addWidget(open_btn)
         
+        header.addLayout(btn_container)
         layout.addLayout(header)
         
-        # 내용
+        # 내용 (검색어 하이라이트 포함)
         content = QTextEdit()
-        content.setPlainText(data['content'])
         content.setReadOnly(True)
         content.setFont(QFont("", font_size))
-        content.setFixedHeight(100)
+        content.setMinimumHeight(80)
+        content.setMaximumHeight(180)
+        
+        # 검색어 하이라이트 적용
+        self._apply_highlight(content, data['content'], query)
+        
         layout.addWidget(content)
+    
+    def _apply_highlight(self, text_edit: QTextEdit, content: str, query: str):
+        """검색어를 하이라이트 처리"""
+        from PyQt6.QtGui import QTextCursor, QTextCharFormat
+        
+        text_edit.setPlainText(content)
+        
+        if not query or len(query) < 2:
+            return
+        
+        # 검색어를 여러 단어로 분리하여 각각 하이라이트
+        keywords = [k.strip() for k in query.split() if len(k.strip()) >= 2]
+        
+        highlight_format = QTextCharFormat()
+        highlight_format.setBackground(QColor("#e94560"))
+        highlight_format.setForeground(QColor("white"))
+        
+        cursor = text_edit.textCursor()
+        
+        for keyword in keywords:
+            # 대소문자 무시 검색
+            text = content.lower()
+            keyword_lower = keyword.lower()
+            start = 0
+            
+            while True:
+                pos = text.find(keyword_lower, start)
+                if pos == -1:
+                    break
+                
+                cursor.setPosition(pos)
+                cursor.setPosition(pos + len(keyword), QTextCursor.MoveMode.KeepAnchor)
+                cursor.mergeCharFormat(highlight_format)
+                start = pos + len(keyword)
+        
+        # 커서를 처음으로 이동
+        cursor.setPosition(0)
+        text_edit.setTextCursor(cursor)
+
+
+# ============================================================================
+# 빈 상태 위젯
+# ============================================================================
+class EmptyStateWidget(QFrame):
+    """빈 상태를 표시하는 위젯"""
+    
+    def __init__(self, icon: str = "📂", title: str = "", description: str = ""):
+        super().__init__()
+        self.setObjectName("card")
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(40, 60, 40, 60)
+        layout.setSpacing(15)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        # 아이콘
+        icon_label = QLabel(icon)
+        icon_label.setStyleSheet("font-size: 48px;")
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(icon_label)
+        
+        # 제목
+        if title:
+            title_label = QLabel(title)
+            title_label.setFont(QFont("", 16, QFont.Weight.Bold))
+            title_label.setStyleSheet("color: #eaeaea;")
+            title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(title_label)
+        
+        # 설명
+        if description:
+            desc_label = QLabel(description)
+            desc_label.setStyleSheet("color: #888; font-size: 13px;")
+            desc_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            desc_label.setWordWrap(True)
+            layout.addWidget(desc_label)
+
+
+# ============================================================================
+# 프로그레스 다이얼로그
+# ============================================================================
+class ProgressDialog(QFrame):
+    """문서 처리 진행 상황을 표시하는 다이얼로그"""
+    
+    canceled = pyqtSignal()
+    
+    def __init__(self, parent=None, title: str = "처리 중"):
+        super().__init__(parent)
+        self.setObjectName("card")
+        self.setFixedSize(400, 180)
+        
+        # 그림자 효과
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(25)
+        shadow.setColor(QColor(0, 0, 0, 120))
+        shadow.setOffset(0, 4)
+        self.setGraphicsEffect(shadow)
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(25, 20, 25, 20)
+        layout.setSpacing(15)
+        
+        # 제목
+        self.title_label = QLabel(title)
+        self.title_label.setFont(QFont("", 14, QFont.Weight.Bold))
+        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.title_label)
+        
+        # 현재 처리 중인 항목
+        self.status_label = QLabel("준비 중...")
+        self.status_label.setStyleSheet("color: #888;")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.status_label)
+        
+        # 프로그레스 바
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setMaximum(100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setFormat("%p%")
+        self.progress_bar.setFixedHeight(12)
+        layout.addWidget(self.progress_bar)
+        
+        # 상세 정보
+        self.detail_label = QLabel("")
+        self.detail_label.setStyleSheet("color: #666; font-size: 11px;")
+        self.detail_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.detail_label)
+    
+    def update_progress(self, percent: int, status: str):
+        """진행 상황 업데이트"""
+        self.progress_bar.setValue(percent)
+        self.status_label.setText(status)
+        self.detail_label.setText(f"{percent}% 완료")
 
 
 # ============================================================================
 # 메인 윈도우
 # ============================================================================
 class MainWindow(QMainWindow):
+
     def __init__(self, qa: RegulationQASystem):
         super().__init__()
         self.qa = qa
@@ -756,6 +1013,7 @@ class MainWindow(QMainWindow):
         self.font_size = AppConfig.DEFAULT_FONT_SIZE
         self.hybrid = True
         self.worker = None
+        self.status_timer = None  # 상태 레이블 타이머 관리
         
         self._load_config()
         self._init_ui()
@@ -803,6 +1061,20 @@ class MainWindow(QMainWindow):
         self._build_search_tab()
         self._build_files_tab()
         self._build_settings_tab()
+        self._setup_shortcuts()
+    
+    def _setup_shortcuts(self):
+        """키보드 단축키 설정"""
+        # Ctrl+O: 폴더 열기
+        QShortcut(QKeySequence("Ctrl+O"), self).activated.connect(self._open_folder)
+        # Ctrl+F: 검색창 포커스
+        QShortcut(QKeySequence("Ctrl+F"), self).activated.connect(self._focus_search)
+    
+    def _focus_search(self):
+        """검색창에 포커스"""
+        self.tabs.setCurrentIndex(0)  # 검색 탭으로 이동
+        self.search_input.setFocus()
+        self.search_input.selectAll()
     
     def _build_search_tab(self):
         tab = QWidget()
@@ -844,12 +1116,12 @@ class MainWindow(QMainWindow):
         self.result_container = QWidget()
         self.result_layout = QVBoxLayout(self.result_container)
         self.result_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.result_layout.setContentsMargins(10, 10, 10, 10)
+        self.result_layout.setSpacing(12)
         self.result_area.setWidget(self.result_container)
         
-        welcome = QLabel("👋 폴더를 선택하고 검색을 시작하세요")
-        welcome.setStyleSheet("color: #666; font-size: 14px;")
-        welcome.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.result_layout.addWidget(welcome)
+        # 빈 상태 위젯 표시
+        self._show_empty_state("welcome")
         
         layout.addWidget(self.result_area, 1)
         
@@ -860,10 +1132,17 @@ class MainWindow(QMainWindow):
         search_layout.setContentsMargins(15, 12, 15, 12)
         
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("검색어를 입력하세요...")
+        self.search_input.setPlaceholderText("검색어를 입력하세요... (최소 2글자)")
         self.search_input.setEnabled(False)
         self.search_input.returnPressed.connect(self._search)
         search_layout.addWidget(self.search_input, 1)
+        
+        # 검색 히스토리 버튼
+        self.history_btn = QPushButton("🕑")
+        self.history_btn.setFixedWidth(40)
+        self.history_btn.setToolTip("최근 검색어")
+        self.history_btn.clicked.connect(self._show_history_menu)
+        search_layout.addWidget(self.history_btn)
         
         self.k_spin = QSpinBox()
         self.k_spin.setRange(1, 10)
@@ -911,6 +1190,9 @@ class MainWindow(QMainWindow):
         self.file_table.setHorizontalHeaderLabels(["상태", "파일명", "크기", "청크"])
         self.file_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.file_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.file_table.setAlternatingRowColors(True)  # 교차 행 색상
+        self.file_table.setSortingEnabled(True)  # 정렬 활성화
+        self.file_table.setToolTip("더블클릭으로 파일 열기")
         self.file_table.doubleClicked.connect(self._open_selected_file)
         layout.addWidget(self.file_table)
         
@@ -935,9 +1217,41 @@ class MainWindow(QMainWindow):
         self.hybrid_check = QCheckBox("하이브리드 검색 (벡터 + 키워드)")
         self.hybrid_check.setChecked(self.hybrid)
         self.hybrid_check.stateChanged.connect(lambda: setattr(self, 'hybrid', self.hybrid_check.isChecked()))
+        self.hybrid_check.setToolTip("벡터 검색과 키워드 검색을 결합하여 더 정확한 결과 제공")
         search_layout.addWidget(self.hybrid_check)
         
         layout.addWidget(search_card)
+        
+        # 표시 설정
+        display_card = QFrame()
+        display_card.setObjectName("card")
+        display_layout = QVBoxLayout(display_card)
+        display_layout.setContentsMargins(20, 15, 20, 15)
+        
+        display_title = QLabel("🎨 표시 설정")
+        display_title.setFont(QFont("", 13, QFont.Weight.Bold))
+        display_layout.addWidget(display_title)
+        
+        # 폰트 크기 조절
+        font_row = QHBoxLayout()
+        font_label = QLabel("결과 폰트 크기:")
+        font_row.addWidget(font_label)
+        
+        self.font_slider = QSlider(Qt.Orientation.Horizontal)
+        self.font_slider.setRange(AppConfig.MIN_FONT_SIZE, AppConfig.MAX_FONT_SIZE)
+        self.font_slider.setValue(self.font_size)
+        self.font_slider.setTickInterval(2)
+        self.font_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.font_slider.valueChanged.connect(self._on_font_size_changed)
+        font_row.addWidget(self.font_slider, 1)
+        
+        self.font_size_label = QLabel(f"{self.font_size}pt")
+        self.font_size_label.setFixedWidth(45)
+        self.font_size_label.setStyleSheet("color: #e94560; font-weight: bold;")
+        font_row.addWidget(self.font_size_label)
+        
+        display_layout.addLayout(font_row)
+        layout.addWidget(display_card)
         
         # 모델 설정
         model_card = QFrame()
@@ -975,10 +1289,12 @@ class MainWindow(QMainWindow):
         clear_cache_btn = QPushButton("🗑️ 캐시 삭제")
         clear_cache_btn.setStyleSheet("background: #dc2626;")
         clear_cache_btn.clicked.connect(self._clear_cache)
+        clear_cache_btn.setToolTip("벡터 인덱스 캐시를 삭제합니다")
         btn_row.addWidget(clear_cache_btn)
         
         clear_history_btn = QPushButton("🕐 히스토리 삭제")
         clear_history_btn.clicked.connect(self._clear_history)
+        clear_history_btn.setToolTip("검색 히스토리를 삭제합니다")
         btn_row.addWidget(clear_history_btn)
         
         btn_row.addStretch()
@@ -1001,6 +1317,7 @@ class MainWindow(QMainWindow):
             row = QHBoxLayout()
             k = QLabel(key)
             k.setFont(QFont("", 11, QFont.Weight.Bold))
+            k.setStyleSheet("color: #e94560;")
             k.setFixedWidth(80)
             row.addWidget(k)
             row.addWidget(QLabel(desc))
@@ -1008,9 +1325,35 @@ class MainWindow(QMainWindow):
             key_layout.addLayout(row)
         
         layout.addWidget(key_card)
+        
+        # 앱 정보
+        info_card = QFrame()
+        info_card.setObjectName("statCard")
+        info_layout = QVBoxLayout(info_card)
+        info_layout.setContentsMargins(20, 15, 20, 15)
+        
+        info_title = QLabel(f"📚 {AppConfig.APP_NAME}")
+        info_title.setFont(QFont("", 14, QFont.Weight.Bold))
+        info_layout.addWidget(info_title)
+        
+        version_label = QLabel(f"버전 {AppConfig.APP_VERSION} | PyQt6 Edition")
+        version_label.setStyleSheet("color: #888;")
+        info_layout.addWidget(version_label)
+        
+        features = QLabel("✓ 하이브리드 검색  ✓ 증분 인덱싱  ✓ 키워드 하이라이트")
+        features.setStyleSheet("color: #10b981; font-size: 11px; margin-top: 5px;")
+        info_layout.addWidget(features)
+        
+        layout.addWidget(info_card)
         layout.addStretch()
         
         self.tabs.addTab(tab, "⚙️ 설정")
+    
+    def _on_font_size_changed(self, value: int):
+        """폰트 크기 변경 처리"""
+        self.font_size = value
+        self.font_size_label.setText(f"{value}pt")
+        self._save_config()
     
     def _load_config(self):
         path = os.path.join(get_app_directory(), AppConfig.CONFIG_FILE)
@@ -1065,26 +1408,38 @@ class MainWindow(QMainWindow):
             self._load_folder(self.last_folder)
     
     def _load_folder(self, folder):
-        files = [os.path.join(folder, f) for f in os.listdir(folder) if os.path.splitext(f)[1].lower() in AppConfig.SUPPORTED_EXTENSIONS]
+        """폴더 로드 및 문서 처리 시작"""
+        try:
+            files = [os.path.join(folder, f) for f in os.listdir(folder) 
+                     if os.path.splitext(f)[1].lower() in AppConfig.SUPPORTED_EXTENSIONS]
+        except PermissionError:
+            QMessageBox.critical(self, "오류", "폴더 접근 권한이 없습니다.")
+            return
+        except Exception as e:
+            QMessageBox.critical(self, "오류", f"폴더 읽기 실패: {e}")
+            return
+        
         if not files:
-            QMessageBox.warning(self, "경고", "지원되는 파일이 없습니다")
+            QMessageBox.warning(self, "경고", f"지원되는 파일이 없습니다.\n\n지원 형식: {', '.join(AppConfig.SUPPORTED_EXTENSIONS)}")
             return
         
         self.folder_label.setText(folder)
+        self.folder_label.setToolTip(folder)
         self.folder_btn.setEnabled(False)
         
         self.progress_dialog = QMessageBox(self)
         self.progress_dialog.setWindowTitle("처리 중")
-        self.progress_dialog.setText("문서를 처리하고 있습니다...")
+        self.progress_dialog.setText(f"문서를 처리하고 있습니다...\n({len(files)}개 파일)")
         self.progress_dialog.setStandardButtons(QMessageBox.StandardButton.NoButton)
         self.progress_dialog.show()
         
         self.worker = DocumentProcessorThread(self.qa, folder, files)
-        self.worker.progress.connect(lambda p, m: self.progress_dialog.setText(f"{m} ({p}%)"))
+        self.worker.progress.connect(lambda p, m: self.progress_dialog.setText(f"{m}\n({p}%)"))
         self.worker.finished.connect(lambda r: self._on_folder_done(r, folder))
         self.worker.start()
     
     def _on_folder_done(self, result, folder):
+        """폴더 처리 완료 핸들러"""
         self.progress_dialog.close()
         self.folder_btn.setEnabled(True)
         
@@ -1096,17 +1451,30 @@ class MainWindow(QMainWindow):
             self.refresh_btn.setEnabled(True)
             self.recent_btn.setEnabled(True)
             self._update_file_table()
-            self._clear_results()
-            info = QLabel(f"✅ {result.message}\n\n청크: {result.data.get('chunks', 0)} | 신규: {result.data.get('new', 0)} | 캐시: {result.data.get('cached', 0)}")
-            info.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            info.setStyleSheet("color: #10b981; font-size: 13px;")
-            self.result_layout.addWidget(info)
+            self._show_empty_state("ready")
+            
+            # 상태 표시
+            self._show_status(f"✅ {result.message} (청크: {result.data.get('chunks', 0)})", "#10b981")
             self.search_input.setFocus()
+            
+            # 처리 실패 파일이 있으면 알림
+            if result.failed_items:
+                failed_count = len(result.failed_items)
+                failed_list = "\n".join(result.failed_items[:5])  # 최대 5개만 표시
+                more_msg = f"\n...외 {failed_count - 5}개" if failed_count > 5 else ""
+                QMessageBox.warning(
+                    self, 
+                    "일부 파일 처리 실패",
+                    f"{failed_count}개 파일 처리 실패:\n\n{failed_list}{more_msg}"
+                )
         else:
             QMessageBox.critical(self, "오류", result.message)
     
     def _update_file_table(self):
         infos = self.qa.get_file_infos()
+        
+        # 정렬 비활성화 후 데이터 삽입 (성능 최적화)
+        self.file_table.setSortingEnabled(False)
         self.file_table.setRowCount(len(infos))
         
         icons = {FileStatus.SUCCESS: "✅", FileStatus.CACHED: "💾", FileStatus.FAILED: "❌", FileStatus.PROCESSING: "⏳", FileStatus.PENDING: "⏸️"}
@@ -1114,23 +1482,47 @@ class MainWindow(QMainWindow):
         total_chunks = 0
         
         for i, info in enumerate(infos):
-            self.file_table.setItem(i, 0, QTableWidgetItem(icons.get(info.status, "?")))
-            self.file_table.setItem(i, 1, QTableWidgetItem(info.name))
-            self.file_table.setItem(i, 2, QTableWidgetItem(FileUtils.format_size(info.size)))
-            self.file_table.setItem(i, 3, QTableWidgetItem(str(info.chunks)))
+            # 상태 아이콘
+            status_item = QTableWidgetItem(icons.get(info.status, "?"))
+            status_item.setData(Qt.ItemDataRole.UserRole, info.path)  # 파일 경로 저장
+            self.file_table.setItem(i, 0, status_item)
+            
+            # 파일명 (경로 저장)
+            name_item = QTableWidgetItem(info.name)
+            name_item.setData(Qt.ItemDataRole.UserRole, info.path)
+            name_item.setToolTip(info.path)  # 전체 경로 툴팁
+            self.file_table.setItem(i, 1, name_item)
+            
+            # 크기
+            size_item = QTableWidgetItem(FileUtils.format_size(info.size))
+            size_item.setData(Qt.ItemDataRole.UserRole + 1, info.size)  # 정렬용 숫자 저장
+            self.file_table.setItem(i, 2, size_item)
+            
+            # 청크
+            chunk_item = QTableWidgetItem(str(info.chunks))
+            chunk_item.setData(Qt.ItemDataRole.UserRole + 1, info.chunks)  # 정렬용 숫자 저장
+            self.file_table.setItem(i, 3, chunk_item)
+            
             total_size += info.size
             total_chunks += info.chunks
+        
+        # 정렬 다시 활성화
+        self.file_table.setSortingEnabled(True)
         
         self.stats_files.setText(f"📄 {len(infos)}개 파일")
         self.stats_chunks.setText(f"📊 {total_chunks} 청크")
         self.stats_size.setText(f"💾 {FileUtils.format_size(total_size)}")
     
     def _open_selected_file(self):
+        """선택된 파일 열기 (정렬과 무관하게 작동)"""
         row = self.file_table.currentRow()
         if row >= 0:
-            infos = self.qa.get_file_infos()
-            if row < len(infos):
-                FileUtils.open_file(infos[row].path)
+            # 저장된 파일 경로 가져오기
+            name_item = self.file_table.item(row, 1)
+            if name_item:
+                file_path = name_item.data(Qt.ItemDataRole.UserRole)
+                if file_path:
+                    FileUtils.open_file(file_path)
     
     def _search(self):
         query = self.search_input.text().strip()
@@ -1146,11 +1538,18 @@ class MainWindow(QMainWindow):
         loading.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.result_layout.addWidget(loading)
         
+        # 검색 시간 측정 시작
+        import time
+        self._search_start_time = time.time()
+        
         self.worker = SearchThread(self.qa, query, self.k_spin.value(), self.hybrid)
         self.worker.finished.connect(lambda r: self._on_search_done(r, query))
         self.worker.start()
     
     def _on_search_done(self, result, query):
+        import time
+        search_time = time.time() - getattr(self, '_search_start_time', time.time())
+        
         self.search_btn.setEnabled(True)
         self._clear_results()
         
@@ -1162,18 +1561,37 @@ class MainWindow(QMainWindow):
             return
         
         if not result.data:
-            no_result = QLabel("❌ 결과 없음")
-            no_result.setStyleSheet("color: #888;")
-            no_result.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.result_layout.addWidget(no_result)
+            self._show_empty_state("no_results")
             return
         
         self.history.add(query)
+        self.last_search_results = result.data  # 내보내기용 저장
+        self.last_search_query = query
         
-        # 쿼리 표시
+        # 결과 헤더 (검색어 + 통계 + 내보내기 버튼)
+        header_frame = QFrame()
+        header_frame.setObjectName("card")
+        header_layout = QHBoxLayout(header_frame)
+        header_layout.setContentsMargins(15, 10, 15, 10)
+        
         query_label = QLabel(f"🔎 \"{query}\" - {len(result.data)}개 결과")
         query_label.setFont(QFont("", 12, QFont.Weight.Bold))
-        self.result_layout.addWidget(query_label)
+        header_layout.addWidget(query_label)
+        
+        # 검색 시간 표시
+        time_label = QLabel(f"⏱ {search_time:.2f}초")
+        time_label.setStyleSheet("color: #888; font-size: 11px;")
+        header_layout.addWidget(time_label)
+        
+        header_layout.addStretch()
+        
+        # 내보내기 버튼
+        export_btn = QPushButton("📥 내보내기")
+        export_btn.setFixedHeight(30)
+        export_btn.clicked.connect(self._export_results)
+        header_layout.addWidget(export_btn)
+        
+        self.result_layout.addWidget(header_frame)
         
         for i, item in enumerate(result.data, 1):
             card = ResultCard(i, item, self._copy_text, self.font_size, query)
@@ -1182,6 +1600,45 @@ class MainWindow(QMainWindow):
         self.search_input.clear()
         self.search_input.setFocus()
     
+    def _export_results(self):
+        """검색 결과 내보내기"""
+        if not hasattr(self, 'last_search_results') or not self.last_search_results:
+            QMessageBox.warning(self, "알림", "내보낼 검색 결과가 없습니다.")
+            return
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "검색 결과 내보내기",
+            f"검색결과_{self.last_search_query[:20]}.txt",
+            "텍스트 파일 (*.txt);;CSV 파일 (*.csv)"
+        )
+        
+        if not file_path:
+            return
+        
+        try:
+            is_csv = file_path.lower().endswith('.csv')
+            
+            with open(file_path, 'w', encoding='utf-8') as f:
+                if is_csv:
+                    f.write("순위,점수,파일,내용\n")
+                    for i, item in enumerate(self.last_search_results, 1):
+                        content = item['content'].replace('"', '""').replace('\n', ' ')
+                        f.write(f'{i},{item["score"]:.2f},"{item["source"]}","{content}"\n')
+                else:
+                    f.write(f"검색어: {self.last_search_query}\n")
+                    f.write(f"결과 수: {len(self.last_search_results)}\n")
+                    f.write("=" * 50 + "\n\n")
+                    
+                    for i, item in enumerate(self.last_search_results, 1):
+                        f.write(f"[결과 {i}] ({int(item['score']*100)}%)\n")
+                        f.write(f"파일: {item['source']}\n")
+                        f.write("-" * 30 + "\n")
+                        f.write(item['content'] + "\n\n")
+            
+            self._show_status(f"✅ 결과 내보내기 완료: {os.path.basename(file_path)}", "#10b981", 3000)
+        except Exception as e:
+            QMessageBox.critical(self, "오류", f"내보내기 실패: {e}")
+    
     def _clear_results(self):
         while self.result_layout.count():
             item = self.result_layout.takeAt(0)
@@ -1189,19 +1646,105 @@ class MainWindow(QMainWindow):
                 item.widget().deleteLater()
     
     def _copy_text(self, text):
+        """텍스트 복사 및 상태 표시"""
         QApplication.clipboard().setText(text)
-        self.status_label.setText("✅ 복사됨")
-        QTimer.singleShot(2000, lambda: self.status_label.setText(""))
+        self._show_status("✅ 클립보드에 복사됨", "#10b981", 2000)
+    
+    def _show_status(self, message: str, color: str = "#eaeaea", duration: int = 0):
+        """상태 레이블에 메시지 표시 (duration이 0이면 영구 표시)"""
+        # 이전 타이머 취소
+        if self.status_timer:
+            self.status_timer.stop()
+            self.status_timer = None
+        
+        self.status_label.setText(message)
+        self.status_label.setStyleSheet(f"color: {color};")
+        
+        if duration > 0:
+            self.status_timer = QTimer()
+            self.status_timer.setSingleShot(True)
+            self.status_timer.timeout.connect(lambda: self.status_label.setText(""))
+            self.status_timer.start(duration)
+    
+    def _show_empty_state(self, state_type: str = "welcome"):
+        """빈 상태 위젯 표시"""
+        self._clear_results()
+        
+        if state_type == "welcome":
+            widget = EmptyStateWidget(
+                "👋",
+                "사내 규정 검색기",
+                "폴더를 선택하고 문서를 로드한 후 검색을 시작하세요.\nCtrl+O로 폴더 열기"
+            )
+        elif state_type == "no_results":
+            widget = EmptyStateWidget(
+                "🔍",
+                "검색 결과 없음",
+                "다른 검색어로 시도해보세요."
+            )
+        elif state_type == "ready":
+            widget = EmptyStateWidget(
+                "✅",
+                "검색 준비 완료",
+                "검색어를 입력하고 Enter를 누르거나 검색 버튼을 클릭하세요."
+            )
+        else:
+            return
+        
+        self.result_layout.addWidget(widget)
+    
+    def _show_history_menu(self):
+        """검색 히스토리 메뉴 표시"""
+        history_items = self.history.get(10)
+        
+        if not history_items:
+            QMessageBox.information(self, "알림", "검색 히스토리가 없습니다.")
+            return
+        
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background: #16213e;
+                border: 1px solid #e94560;
+                border-radius: 6px;
+                padding: 5px;
+            }
+            QMenu::item {
+                background: transparent;
+                color: white;
+                padding: 8px 20px;
+                border-radius: 4px;
+            }
+            QMenu::item:selected {
+                background: #e94560;
+            }
+        """)
+        
+        for query in history_items:
+            action = menu.addAction(f"🔍 {query}")
+            action.triggered.connect(lambda checked, q=query: self._search_from_history(q))
+        
+        menu.addSeparator()
+        clear_action = menu.addAction("🗑️ 히스토리 삭제")
+        clear_action.triggered.connect(self._clear_history)
+        
+        # 버튼 아래에 메뉴 표시
+        menu.exec(self.history_btn.mapToGlobal(self.history_btn.rect().bottomLeft()))
+    
+    def _search_from_history(self, query: str):
+        """히스토리에서 선택한 검색어로 검색"""
+        self.search_input.setText(query)
+        self._search()
     
     def _clear_cache(self):
         if QMessageBox.question(self, "확인", "캐시를 삭제하시겠습니까?") == QMessageBox.StandardButton.Yes:
             self.qa.clear_cache()
-            self.status_label.setText("✅ 캐시 삭제됨")
+            self._show_status("✅ 캐시 삭제됨", "#10b981", 3000)
     
     def _clear_history(self):
         if QMessageBox.question(self, "확인", "히스토리를 삭제하시겠습니까?") == QMessageBox.StandardButton.Yes:
             self.history.clear()
-            self.status_label.setText("✅ 히스토리 삭제됨")
+            self._show_status("✅ 히스토리 삭제됨", "#10b981", 3000)
     
     def closeEvent(self, event):
         self._save_config()

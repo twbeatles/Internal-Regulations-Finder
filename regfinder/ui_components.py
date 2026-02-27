@@ -63,11 +63,12 @@ class SearchHistory:
 class ResultCard(QFrame):
     """검색 결과를 표시하는 카드 위젯"""
     
-    def __init__(self, idx: int, data: Dict, on_copy, font_size: int = 12, query: str = ""):
+    def __init__(self, idx: int, data: Dict, on_copy, on_bookmark=None, font_size: int = 12, query: str = ""):
         super().__init__()
         self.setObjectName("resultCard")
         self.data = data
         self.query = query
+        self.on_bookmark = on_bookmark
         
         # 그림자 효과
         shadow = QGraphicsDropShadowEffect(self)
@@ -143,6 +144,14 @@ class ResultCard(QFrame):
         copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         copy_btn.clicked.connect(lambda: on_copy(data['content']))
         btn_container.addWidget(copy_btn)
+
+        if self.on_bookmark is not None:
+            save_btn = QPushButton("⭐ 저장")
+            save_btn.setFixedHeight(30)
+            save_btn.setFixedWidth(75)
+            save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            save_btn.clicked.connect(lambda: self.on_bookmark(data))
+            btn_container.addWidget(save_btn)
         
         if data.get('path'):
             open_btn = QPushButton("📂 열기")

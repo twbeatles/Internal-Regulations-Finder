@@ -8,15 +8,16 @@
 ## ✨ 핵심 기능
 
 - 하이브리드 검색(벡터 70% + BM25 30%)
-- 검색어 하이라이트, 검색 시간 표시, 결과 TXT/CSV 내보내기
+- 검색 필터(확장자/파일명/경로), 정렬(점수/파일명/최근 수정)
+- 결과 카드 하이라이트, 검색 시간 표시, TXT/CSV 내보내기
+- 북마크 저장/조회/내보내기
+- 최근 폴더 다중 관리
 - 증분 인덱싱/캐시(변경 파일만 재처리)
-- 암호화 PDF 비밀번호 즉시 입력(세션 내 재사용)
-- 캐시 삭제 시 디스크+메모리 동시 초기화
-- OCR 인터페이스 확장 포인트 제공(엔진 미포함)
-- 오프라인 모델 다운로드(선택 다운로드)
-- 모델 다운로드 취소 응답성 개선(스크립트 실행 시 subprocess + 300ms 폴링, EXE는 in-process 폴백)
-- 진단 번들(zip) 내보내기(환경/설정/로그/캐시 요약)
-- 작업 실패 시 상세 디버그 정보(`TaskResult.debug`) 확인
+- 암호화 PDF 비밀번호 입력(세션 메모리 재사용, 디스크 저장 안 함)
+- OCR 인터페이스 확장 포인트 제공(기본 엔진 미포함)
+- 오프라인 모델 선택 다운로드(취소 지원)
+- 진단 탭(인덱스 상태 + 검색 로그 요약) 및 진단 ZIP 내보내기
+- 오류 코드별 가이드 메시지 + 상세 디버그(`TaskResult.debug`)
 
 ---
 
@@ -28,77 +29,43 @@
 pip install PyQt6 torch langchain langchain-huggingface langchain-community faiss-cpu python-docx pypdf olefile charset-normalizer
 ```
 
-> GPU 사용 시 `faiss-cpu` 대신 `faiss-gpu` 사용 가능
-
 ### 2) 앱 실행
 
 ```bash
 python "사내 규정검색기 v9 PyQt6.py"
 ```
 
-기존 한국어 엔트리 파일은 **호환 래퍼**이며, 내부적으로 `regfinder.app_main.main()`을 호출합니다.
-
 ---
 
-## 🧱 코드 구조 (모듈 분할 적용)
-
-리팩토링 전 단일 파일 구조를 `regfinder` 패키지로 분리했습니다.
+## 🧱 코드 구조
 
 | 모듈 | 책임 |
 |---|---|
-| `regfinder/app_types.py` | 설정/Enum/데이터 클래스(`AppConfig`, `TaskResult`, `FileInfo` 등) |
-| `regfinder/runtime.py` | 동적 import, 로깅, 경로 정책(data/models/logs/config/history) |
+| `regfinder/app_types.py` | 설정/Enum/데이터 클래스 |
+| `regfinder/runtime.py` | 로깅, 경로 정책, op_id |
+| `regfinder/persistence.py` | 설정 스키마(v2), 북마크/최근폴더/검색로그 저장 |
+| `regfinder/worker_registry.py` | 작업 종류별 워커 레지스트리 |
 | `regfinder/file_utils.py` | 파일 읽기/메타/열기/크기 포맷 |
-| `regfinder/bm25.py` | BM25Light 키워드 검색 |
-| `regfinder/document_extractor.py` | TXT/DOCX/PDF/HWP 추출 |
-| `regfinder/qa_system.py` | 인덱싱/캐시/검색/진단의 핵심 서비스 |
-| `regfinder/workers.py` | QThread 워커(`ModelLoader/Search/DocumentProcessor/Download`) |
-| `regfinder/ui_style.py` | QSS 스타일(`DARK_STYLE`) |
-| `regfinder/ui_components.py` | UI 컴포넌트(`ResultCard`, `ProgressDialog` 등) |
-| `regfinder/main_window.py` | 메인 윈도우/탭/이벤트 흐름 |
-| `regfinder/app_main.py` | 앱 엔트리(`main`) |
+| `regfinder/document_extractor.py` | TXT/DOCX/PDF/HWP 추출(+PDF 비밀번호/OCR 훅) |
+| `regfinder/bm25.py` | BM25Light 검색 |
+| `regfinder/qa_system.py` | 인덱싱/검색/캐시 핵심 |
+| `regfinder/qa_system_mixins.py` | 진단/상태 조회 API |
+| `regfinder/workers.py` | QThread 워커 |
+| `regfinder/ui_components.py` | ResultCard/ProgressDialog 등 |
+| `regfinder/ui_style.py` | QSS 스타일 |
+| `regfinder/main_window.py` | 메인 이벤트 오케스트레이션 |
+| `regfinder/main_window_ui_mixin.py` | UI 빌더 메서드 |
+| `regfinder/main_window_mixins.py` | 설정/진단/북마크 보조 로직 |
+| `regfinder/app_main.py` | 앱 엔트리 |
 
 ---
 
-## 📁 현재 파일 구조
+## ✅ 검증
 
-```text
-Internal-Regulations-Finder-main/
-├── 사내 규정검색기 v9 PyQt6.py          # 호환 래퍼 엔트리
-├── 사내 규정검색기 v9 PyQt6.spec        # PyInstaller onefile 설정
-├── README.md
-├── claude.md
-├── gemini.md
-├── regfinder/
-│   ├── __init__.py
-│   ├── app_types.py
-│   ├── runtime.py
-│   ├── file_utils.py
-│   ├── bm25.py
-│   ├── document_extractor.py
-│   ├── qa_system.py
-│   ├── workers.py
-│   ├── ui_style.py
-│   ├── ui_components.py
-│   ├── main_window.py
-│   └── app_main.py
-├── tools/
-│   ├── symbol_inventory.py               # 심볼 인벤토리/비교
-│   └── smoke_refactor.py                 # 정적+import+sanity 스모크
-├── tests/
-│   ├── test_file_utils.py
-│   ├── test_runtime_paths.py
-│   ├── test_qa_state_reset.py
-│   ├── test_bm25_state.py
-│   ├── test_document_extractor_pdf.py
-│   └── test_document_extractor_hwp.py
-├── pytest.ini
-├── docs/
-│   ├── refactor_mapping.md
-│   └── refactor_checklist.md
-└── artifacts/
-    ├── symbols_before.json
-    └── symbols_after.json
+```bash
+python tools/smoke_refactor.py
+python -m unittest discover -s tests -v
+pytest -q
 ```
 
 ---
@@ -112,59 +79,26 @@ pyinstaller "사내 규정검색기 v9 PyQt6.spec"
 
 출력: `dist/사내 규정검색기 v9.3_onefile.exe`
 
-### spec 점검 포인트
-
-- 진입 스크립트는 기존과 동일: `Analysis(['사내 규정검색기 v9 PyQt6.py'])`
-- 분할된 패키지 인식을 위해 `pathex`에 프로젝트 루트 포함
-- `regfinder.*` 모듈 hidden import 명시
-- 기존 동적 import 대상(LangChain/HuggingFace/FAISS 등) hidden import 유지
-
----
-
-## ✅ 누락 방지 검증
-
-### 심볼 비교
-
-```bash
-python tools/symbol_inventory.py --paths regfinder "사내 규정검색기 v9 PyQt6.py" --out artifacts/symbols_after.json --compare-before artifacts/symbols_before.json --compare-after artifacts/symbols_after.json
-```
-
-### 스모크 검증
-
-```bash
-python tools/smoke_refactor.py
-```
-
-### pytest 검증
-
-```bash
-pytest -q
-```
-
-검증 항목:
-
-- `py_compile` 전체 통과
-- 분할 전/후 심볼 누락 0
-- 모듈 import 통과
-- 핵심 객체 생성 및 기본 sanity 체크 통과
-- 핵심 로직 단위 테스트 통과(`pytest`)
-
 ---
 
 ## ⚙️ 데이터 저장 정책
 
-- 우선 실행 폴더(포터블) 저장
-- 비-frozen 실행 시 `sys.argv[0]` 기준의 실제 엔트리 경로를 실행 폴더로 사용
-- 실행 폴더가 쓰기 불가이면 사용자 경로(`LOCALAPPDATA`/`APPDATA`)로 폴백
-- 적용 대상: `config.json`, `search_history.json`, `logs/`, `models/`
+- 포터블 경로 우선, 불가 시 `LOCALAPPDATA/APPDATA` 폴백
+- 저장 항목:
+  - `config.json` (schema_version=2)
+  - `search_history.json`
+  - `bookmarks.json`
+  - `recent_folders.json`
+  - `search_log.json`
+  - `logs/`, `models/`
 
 ---
 
 ## 🧪 알려진 제한
 
-- 이미지 기반 PDF는 기본적으로 OCR 엔진이 연결되어 있지 않아 텍스트 추출 불가
-- 암호화 PDF는 문서 로드 시작 시 비밀번호 입력이 필요(세션 메모리 저장, 디스크 저장 안 함)
-- HWP는 `BodyText/Section*` 다중 섹션을 우선 처리하며, 형식 손상/변형 문서는 실패할 수 있음
+- 이미지 PDF는 기본 OCR 엔진이 미포함이라 별도 엔진 연결 전에는 텍스트 추출 불가
+- 암호화 PDF는 올바른 비밀번호가 필요
+- HWP는 문서 형식 손상/변형에 따라 추출 실패 가능
 
 ---
 

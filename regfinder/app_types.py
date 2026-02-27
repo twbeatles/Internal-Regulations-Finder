@@ -18,6 +18,10 @@ class AppConfig:
     
     CONFIG_FILE = "config.json"
     HISTORY_FILE = "search_history.json"
+    BOOKMARKS_FILE = "bookmarks.json"
+    RECENTS_FILE = "recent_folders.json"
+    SEARCH_LOG_FILE = "search_log.json"
+    CONFIG_SCHEMA_VERSION = 2
     SUPPORTED_EXTENSIONS = ('.txt', '.docx', '.pdf', '.hwp')
     
     MAX_FONT_SIZE = 32
@@ -26,6 +30,9 @@ class AppConfig:
     DEFAULT_SEARCH_RESULTS = 3
     MAX_SEARCH_RESULTS = 10
     MAX_HISTORY_SIZE = 30
+    MAX_RECENT_FOLDERS = 10
+    MAX_BOOKMARKS = 500
+    MAX_SEARCH_LOGS = 1000
     
     CHUNK_SIZE = 800
     CHUNK_OVERLAP = 80

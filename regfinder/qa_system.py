@@ -1,17 +1,14 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 import gc
 import hashlib
 import json
 import os
-import platform
 import shutil
-import sys
 import tempfile
 import threading
 import traceback
-import zipfile
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -19,20 +16,17 @@ from .app_types import AppConfig, FileInfo, FileStatus, TaskResult
 from .bm25 import BM25Light
 from .document_extractor import BaseOCREngine, DocumentExtractor, NoOpOCREngine
 from .file_utils import FileUtils
+from .qa_system_mixins import RegulationQADiagnosticsMixin
 from .runtime import (
     _import_attr,
     _import_module,
-    get_config_path,
-    get_data_directory,
-    get_history_path,
-    get_logs_directory,
     get_models_directory,
     get_op_logger,
     logger,
     new_op_id,
 )
 
-class RegulationQASystem:
+class RegulationQASystem(RegulationQADiagnosticsMixin):
     def __init__(self):
         self.vector_store = None
         self.embedding_model = None
@@ -65,120 +59,6 @@ class RegulationQASystem:
         if reset_model:
             self.embedding_model = None
             self.model_id = None
-
-    def collect_diagnostics(self) -> Dict[str, Any]:
-        """문제 재현/분석을 위한 최소 진단 정보(문서 원문/청크 내용은 포함하지 않음)."""
-        try:
-            frozen = bool(getattr(sys, "frozen", False))
-            env = {
-                "app_name": AppConfig.APP_NAME,
-                "app_version": AppConfig.APP_VERSION,
-                "python": sys.version,
-                "platform": platform.platform(),
-                "frozen": frozen,
-                "data_dir": get_data_directory(),
-                "models_dir": get_models_directory(),
-                "logs_dir": get_logs_directory(),
-                "cache_root": self.cache_path,
-                "current_folder": self.current_folder,
-                "vector_id_mode": self._vector_id_mode,
-                "cache_schema_version": getattr(self, "CACHE_SCHEMA_VERSION", None),
-            }
-
-            # GPU 여부는 torch import 비용이 크므로 best-effort로만 확인
-            try:
-                torch = _import_module("torch")
-                env["cuda_available"] = bool(torch.cuda.is_available())
-            except Exception:
-                env["cuda_available"] = None
-
-            # 캐시 요약(가능하면 cache_info.json 기반으로만)
-            cache_summary: Dict[str, Any] = {"available": False}
-            try:
-                if self.model_id and self.current_folder and os.path.isdir(self.current_folder):
-                    cache_dir = self._get_cache_dir(self.current_folder)
-                    cache_info_path = os.path.join(cache_dir, "cache_info.json")
-                    if os.path.exists(cache_info_path):
-                        with open(cache_info_path, "r", encoding="utf-8") as f:
-                            ci = json.load(f) or {}
-                        files = ci.get("files") if isinstance(ci, dict) else None
-                        if isinstance(files, dict):
-                            total_chunks = sum(int(v.get("chunks", 0) or 0) for v in files.values() if isinstance(v, dict))
-                            cache_summary = {
-                                "available": True,
-                                "cache_dir": cache_dir,
-                                "schema_version": ci.get("schema_version"),
-                                "vector_id_mode": ci.get("vector_id_mode"),
-                                "files": len(files),
-                                "total_chunks": total_chunks,
-                                "cache_info_mtime": os.path.getmtime(cache_info_path),
-                            }
-            except Exception as e:
-                cache_summary = {"available": False, "error": str(e)}
-
-            with self._diagnostics_lock:
-                last_op = dict(self.last_op or {})
-
-            return {"environment": env, "cache_summary": cache_summary, "last_op": last_op}
-        except Exception:
-            return {"error": traceback.format_exc()}
-
-    def export_diagnostics_zip(self, path: str) -> TaskResult:
-        """진단 번들(zip) 내보내기. 누락 항목이 있어도 가능한 범위에서 생성."""
-        op_id = new_op_id("DIAG")
-        log = get_op_logger(op_id)
-        started = datetime.now()
-
-        manifest: Dict[str, Any] = {"op_id": op_id, "created_at": datetime.now().isoformat(timespec="seconds"), "items": []}
-
-        def _try_add_file(zf: zipfile.ZipFile, arcname: str, src: str):
-            item = {"type": "file", "arcname": arcname, "src": src, "ok": False}
-            try:
-                if os.path.exists(src) and os.path.isfile(src):
-                    zf.write(src, arcname=arcname)
-                    item["ok"] = True
-                else:
-                    item["error"] = "not_found"
-            except Exception as e:
-                item["error"] = str(e)
-            manifest["items"].append(item)
-
-        try:
-            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-            with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-                # environment.json + cache_summary.json + last_op.json
-                diag = self.collect_diagnostics()
-                zf.writestr("environment.json", json.dumps(diag.get("environment", {}), ensure_ascii=False, indent=2))
-                zf.writestr("cache_summary.json", json.dumps(diag.get("cache_summary", {}), ensure_ascii=False, indent=2))
-                zf.writestr("last_op.json", json.dumps(diag.get("last_op", {}), ensure_ascii=False, indent=2))
-
-                # config/history
-                _try_add_file(zf, "config.json", get_config_path())
-                _try_add_file(zf, "search_history.json", get_history_path())
-
-                # logs (best-effort)
-                logs_dir = get_logs_directory()
-                if os.path.isdir(logs_dir):
-                    for name in os.listdir(logs_dir):
-                        if name.startswith("app.log"):
-                            _try_add_file(zf, f"logs/{name}", os.path.join(logs_dir, name))
-
-                # cache_info.json only (no docs/index to avoid large+unsafe content)
-                try:
-                    if self.model_id and self.current_folder and os.path.isdir(self.current_folder):
-                        cache_dir = self._get_cache_dir(self.current_folder)
-                        _try_add_file(zf, "cache/cache_info.json", os.path.join(cache_dir, "cache_info.json"))
-                except Exception as e:
-                    manifest["items"].append({"type": "cache", "ok": False, "error": str(e)})
-
-                zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
-
-            elapsed_ms = int((datetime.now() - started).total_seconds() * 1000)
-            log.info(f"진단 번들 생성 완료: {path} ({elapsed_ms}ms)")
-            return TaskResult(True, "진단 번들 생성 완료", {"path": path}, op_id=op_id)
-        except Exception as e:
-            log.exception("진단 번들 생성 실패")
-            return TaskResult(False, f"진단 번들 생성 실패: {e}", op_id=op_id, error_code="DIAG_EXPORT_FAIL", debug=traceback.format_exc())
 
     def load_model(self, model_name: str, progress_cb=None, op_id: Optional[str] = None) -> TaskResult:
         op_id = op_id or new_op_id("MODEL")
@@ -240,7 +120,7 @@ class RegulationQASystem:
         h1 = hashlib.md5(self.model_id.encode()).hexdigest()[:6]
         h2 = hashlib.md5(folder.encode()).hexdigest()[:6]
         return os.path.join(self.cache_path, f"{h2}_{h1}")
-    
+
     def process_documents(
         self,
         folder: str,
@@ -527,8 +407,6 @@ class RegulationQASystem:
         if self.documents:
             self.bm25 = BM25Light()
             self.bm25.fit(self.documents)
-        else:
-            self.bm25 = None
     
     def _load_cache_info(self, cache_dir):
         """캐시 정보 파일 로드"""
@@ -570,7 +448,15 @@ class RegulationQASystem:
         except Exception as e:
             logger.warning(f"캐시 저장 실패: {e}")
     
-    def search(self, query: str, k: int = 3, hybrid: bool = True, op_id: Optional[str] = None) -> TaskResult:
+    def search(
+        self,
+        query: str,
+        k: int = 3,
+        hybrid: bool = True,
+        op_id: Optional[str] = None,
+        filters: Optional[Dict[str, str]] = None,
+        sort_by: str = "score_desc",
+    ) -> TaskResult:
         """하이브리드 검색 수행"""
         if not self.vector_store:
             return TaskResult(False, "문서가 로드되지 않았습니다", op_id=op_id or "", error_code="DOCS_NOT_LOADED")
@@ -589,7 +475,9 @@ class RegulationQASystem:
             vec_results = self.vector_store.similarity_search_with_score(query, k=k*2)
              
             # 2. 결과 정규화 및 결합
-            final_results = self._calculate_hybrid_results(query, vec_results, k, hybrid)
+            combined = self._calculate_hybrid_results(query, vec_results, k * 3, hybrid)
+            filtered = self._apply_search_filters(combined, filters or {})
+            final_results = self._sort_results(filtered, sort_by)[:k]
             elapsed_ms = int((datetime.now() - started).total_seconds() * 1000)
             log.info(f"검색 완료: qlen={len(query)} k={k} hybrid={bool(hybrid)} results={len(final_results)} ({elapsed_ms}ms)")
             with self._diagnostics_lock:
@@ -600,6 +488,8 @@ class RegulationQASystem:
                     "k": k,
                     "hybrid": bool(hybrid),
                     "results": len(final_results),
+                    "sort_by": sort_by,
+                    "filters": dict(filters or {}),
                     "success": True,
                     "elapsed_ms": elapsed_ms,
                     "ts": datetime.now().isoformat(timespec="seconds"),
@@ -646,6 +536,7 @@ class RegulationQASystem:
                     'content': doc.page_content,
                     'source': m.get('source', '?'),
                     'path': m.get('path', ''),
+                    'mtime': m.get('mtime'),
                     'vec_score': norm_score,
                     'bm25_score': 0.0
                 }
@@ -671,6 +562,7 @@ class RegulationQASystem:
                                 'content': self.documents[idx],
                                 'source': meta.get('source', '?'),
                                 'path': meta.get('path', ''),
+                                'mtime': meta.get('mtime'),
                                 'vec_score': 0.0,
                                 'bm25_score': norm_bm
                             }
@@ -681,6 +573,36 @@ class RegulationQASystem:
                            AppConfig.BM25_WEIGHT * item['bm25_score'])
                            
         return sorted(combined.values(), key=lambda x: x['score'], reverse=True)[:k]
+
+    def _apply_search_filters(self, results: List[Dict], filters: Dict[str, str]) -> List[Dict]:
+        ext_filter = str(filters.get("extension", "") or "").strip().lower()
+        filename_filter = str(filters.get("filename", "") or "").strip().lower()
+        path_filter = str(filters.get("path", "") or "").strip().lower()
+
+        if not (ext_filter or filename_filter or path_filter):
+            return results
+
+        filtered: List[Dict] = []
+        for item in results:
+            source = str(item.get("source", "") or "").lower()
+            path = str(item.get("path", "") or "").lower()
+            ext = os.path.splitext(path or source)[1].lower()
+
+            if ext_filter and ext != ext_filter:
+                continue
+            if filename_filter and filename_filter not in source:
+                continue
+            if path_filter and path_filter not in path:
+                continue
+            filtered.append(item)
+        return filtered
+
+    def _sort_results(self, results: List[Dict], sort_by: str) -> List[Dict]:
+        if sort_by == "filename_asc":
+            return sorted(results, key=lambda x: str(x.get("source", "") or "").lower())
+        if sort_by == "mtime_desc":
+            return sorted(results, key=lambda x: float(x.get("mtime", 0) or 0), reverse=True)
+        return sorted(results, key=lambda x: float(x.get("score", 0) or 0), reverse=True)
     
     def _identify_files_to_process(self, folder: str, files: List[str], cache_info: Dict) -> Tuple[List[str], List[str]]:
         """(호환용) 추가 파일과 캐시 파일 구분 - v2 스키마 기준."""
@@ -912,6 +834,9 @@ class RegulationQASystem:
                     failed.append(f"{fname} ({error})")
                     self.file_infos[fp].status = FileStatus.FAILED
                     continue
+
+                file_meta = FileUtils.get_metadata(fp) or {}
+                file_mtime = file_meta.get("mtime")
                     
                 chunks = splitter.split_text(content.strip())
                 if not chunks:
@@ -932,6 +857,7 @@ class RegulationQASystem:
                         "chunk_idx": chunk_count,
                         "source": fname,
                         "path": fp,
+                        "mtime": file_mtime,
                     }
                     new_docs.append(Document(page_content=c, metadata=meta))
                     new_texts.append(c)
@@ -941,11 +867,10 @@ class RegulationQASystem:
                         
                 self.file_infos[fp].status = FileStatus.SUCCESS
                 self.file_infos[fp].chunks = chunk_count
-                meta = FileUtils.get_metadata(fp)
-                if meta:
+                if file_meta:
                     new_cache_files[file_key] = {
-                        "size": meta.get("size"),
-                        "mtime": meta.get("mtime"),
+                        "size": file_meta.get("size"),
+                        "mtime": file_meta.get("mtime"),
                         "chunks": chunk_count,
                     }
             except Exception as e:
@@ -958,3 +883,4 @@ class RegulationQASystem:
     def cleanup(self):
         self.reset_runtime_state(reset_model=False)
         gc.collect()
+

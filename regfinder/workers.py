@@ -220,19 +220,28 @@ class DocumentProcessorThread(BaseWorkerThread):
 class SearchThread(BaseWorkerThread):
     finished = pyqtSignal(object)
     
-    def __init__(self, qa, query, k, hybrid):
+    def __init__(self, qa, query, k, hybrid, filters=None, sort_by: str = "score_desc"):
         super().__init__("SEARCH")
         self.qa = qa
         self.query = query
         self.k = k
         self.hybrid = hybrid
+        self.filters = filters or {}
+        self.sort_by = sort_by
     
     def run(self):
         if self.is_canceled():
             self.finished.emit(TaskResult(False, "검색이 취소되었습니다", op_id=self.op_id, error_code="SEARCH_CANCELED"))
             return
         try:
-            result = self.qa.search(self.query, self.k, self.hybrid, op_id=self.op_id)
+            result = self.qa.search(
+                self.query,
+                self.k,
+                self.hybrid,
+                op_id=self.op_id,
+                filters=self.filters,
+                sort_by=self.sort_by,
+            )
         except Exception:
             result = self._fail("검색 중 오류가 발생했습니다", "SEARCH_FAIL")
         self.finished.emit(result)

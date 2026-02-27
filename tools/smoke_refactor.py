@@ -28,6 +28,11 @@ def import_targets() -> None:
     modules = [
         "regfinder.app_types",
         "regfinder.runtime",
+        "regfinder.persistence",
+        "regfinder.worker_registry",
+        "regfinder.main_window_ui_mixin",
+        "regfinder.main_window_mixins",
+        "regfinder.qa_system_mixins",
         "regfinder.file_utils",
         "regfinder.bm25",
         "regfinder.document_extractor",

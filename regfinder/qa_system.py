@@ -407,6 +407,8 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
         if self.documents:
             self.bm25 = BM25Light()
             self.bm25.fit(self.documents)
+        else:
+            self.bm25 = None
     
     def _load_cache_info(self, cache_dir):
         """캐시 정보 파일 로드"""

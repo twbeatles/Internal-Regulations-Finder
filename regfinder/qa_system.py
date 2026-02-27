@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .app_types import AppConfig, FileInfo, FileStatus, TaskResult
 from .bm25 import BM25Light
-from .document_extractor import DocumentExtractor
+from .document_extractor import BaseOCREngine, DocumentExtractor, NoOpOCREngine
 from .file_utils import FileUtils
 from .runtime import (
     _import_attr,
@@ -49,6 +49,22 @@ class RegulationQASystem:
         self._lock = threading.Lock()
         self.last_op: Dict[str, Any] = {}
         self._diagnostics_lock = threading.Lock()
+
+    def reset_runtime_state(self, reset_model: bool = False):
+        """세션 인덱스/메모리 상태 초기화."""
+        self.vector_store = None
+        self._vector_id_mode = "auto"
+        self.documents.clear()
+        self.doc_meta.clear()
+        self.doc_ids.clear()
+        self.file_infos.clear()
+        self.current_folder = ""
+        if self.bm25:
+            self.bm25.clear()
+        self.bm25 = None
+        if reset_model:
+            self.embedding_model = None
+            self.model_id = None
 
     def collect_diagnostics(self) -> Dict[str, Any]:
         """문제 재현/분석을 위한 최소 진단 정보(문서 원문/청크 내용은 포함하지 않음)."""
@@ -225,7 +241,16 @@ class RegulationQASystem:
         h2 = hashlib.md5(folder.encode()).hexdigest()[:6]
         return os.path.join(self.cache_path, f"{h2}_{h1}")
     
-    def process_documents(self, folder: str, files: List[str], progress_cb, cancel_check=None, op_id: Optional[str] = None) -> TaskResult:
+    def process_documents(
+        self,
+        folder: str,
+        files: List[str],
+        progress_cb,
+        cancel_check=None,
+        op_id: Optional[str] = None,
+        pdf_passwords: Optional[Dict[str, str]] = None,
+        ocr_options: Optional[Dict[str, Any]] = None,
+    ) -> TaskResult:
         if not self.embedding_model:
             return TaskResult(False, "모델이 로드되지 않았습니다", op_id=op_id or "", error_code="MODEL_NOT_LOADED")
         folder = os.path.normpath(os.path.abspath(folder))
@@ -233,8 +258,16 @@ class RegulationQASystem:
         log = get_op_logger(op_id)
         started = datetime.now()
         log.info(f"문서 처리 시작: folder={folder} files={len(files)}")
+        ocr_engine = self._resolve_ocr_engine(ocr_options)
         with self._lock:
-            result = self._process_internal(folder, files, progress_cb, cancel_check)
+            result = self._process_internal(
+                folder,
+                files,
+                progress_cb,
+                cancel_check,
+                pdf_passwords=pdf_passwords,
+                ocr_engine=ocr_engine,
+            )
         elapsed_ms = int((datetime.now() - started).total_seconds() * 1000)
         result.op_id = result.op_id or op_id
         with self._diagnostics_lock:
@@ -276,7 +309,24 @@ class RegulationQASystem:
             and isinstance(cache_info.get("vector_id_mode"), str)
         )
 
-    def _process_internal(self, folder, files, progress_cb, cancel_check=None) -> TaskResult:
+    def _resolve_ocr_engine(self, ocr_options: Optional[Dict[str, Any]]) -> Optional[BaseOCREngine]:
+        if isinstance(ocr_options, dict):
+            if ocr_options.get("enabled") is False:
+                return None
+            engine = ocr_options.get("engine")
+            if engine and hasattr(engine, "extract_pdf_images"):
+                return engine
+        return NoOpOCREngine()
+
+    def _process_internal(
+        self,
+        folder,
+        files,
+        progress_cb,
+        cancel_check=None,
+        pdf_passwords: Optional[Dict[str, str]] = None,
+        ocr_engine: Optional[BaseOCREngine] = None,
+    ) -> TaskResult:
         self.current_folder = folder
         cache_dir = self._get_cache_dir(folder)
         self.file_infos.clear()
@@ -375,7 +425,12 @@ class RegulationQASystem:
 
                     if to_process_paths:
                         failed, new_docs, new_files_info, new_texts, new_metas, new_ids = self._extract_and_chunk_docs(
-                            folder, to_process_paths, progress_cb, cancel_check
+                            folder,
+                            to_process_paths,
+                            progress_cb,
+                            cancel_check,
+                            pdf_passwords=pdf_passwords,
+                            ocr_engine=ocr_engine,
                         )
                         if cancel_check and cancel_check():
                             return TaskResult(False, "사용자에 의해 취소됨")
@@ -383,7 +438,14 @@ class RegulationQASystem:
                         progress_cb(75, "벡터 인덱스 업데이트...")
                         if not self._update_vector_index(new_docs, new_ids, cancel_check=cancel_check):
                             # 부분 업데이트 실패 시 전체 재빌드로 폴백
-                            return self._rebuild_all(folder, list(current.values()), progress_cb, cancel_check)
+                            return self._rebuild_all(
+                                folder,
+                                list(current.values()),
+                                progress_cb,
+                                cancel_check,
+                                pdf_passwords=pdf_passwords,
+                                ocr_engine=ocr_engine,
+                            )
 
                         self.documents.extend(new_texts)
                         self.doc_meta.extend(new_metas)
@@ -405,7 +467,14 @@ class RegulationQASystem:
                     )
 
             # 부분 삭제 불가/실패: 전체 재빌드
-            return self._rebuild_all(folder, list(current.values()), progress_cb, cancel_check)
+            return self._rebuild_all(
+                folder,
+                list(current.values()),
+                progress_cb,
+                cancel_check,
+                pdf_passwords=pdf_passwords,
+                ocr_engine=ocr_engine,
+            )
 
         # 3) 추가만 처리(안전 증분)
         to_process_keys = list(added_keys)
@@ -421,7 +490,12 @@ class RegulationQASystem:
             )
 
         failed, new_docs, new_files_info, new_texts, new_metas, new_ids = self._extract_and_chunk_docs(
-            folder, to_process_paths, progress_cb, cancel_check
+            folder,
+            to_process_paths,
+            progress_cb,
+            cancel_check,
+            pdf_passwords=pdf_passwords,
+            ocr_engine=ocr_engine,
         )
 
         if cancel_check and cancel_check():
@@ -453,6 +527,8 @@ class RegulationQASystem:
         if self.documents:
             self.bm25 = BM25Light()
             self.bm25.fit(self.documents)
+        else:
+            self.bm25 = None
     
     def _load_cache_info(self, cache_dir):
         """캐시 정보 파일 로드"""
@@ -732,12 +808,23 @@ class RegulationQASystem:
             return False
 
     def get_file_infos(self): return list(self.file_infos.values())
-    def clear_cache(self):
+    def clear_cache(self, reset_memory: bool = True):
         if os.path.exists(self.cache_path):
             shutil.rmtree(self.cache_path, ignore_errors=True)
-        return TaskResult(True, "캐시 삭제 완료")
+        if reset_memory:
+            self.reset_runtime_state(reset_model=False)
+            return TaskResult(True, "디스크+메모리 캐시 삭제 완료")
+        return TaskResult(True, "디스크 캐시 삭제 완료")
 
-    def _rebuild_all(self, folder: str, current_items: List[Dict[str, Any]], progress_cb, cancel_check=None) -> TaskResult:
+    def _rebuild_all(
+        self,
+        folder: str,
+        current_items: List[Dict[str, Any]],
+        progress_cb,
+        cancel_check=None,
+        pdf_passwords: Optional[Dict[str, str]] = None,
+        ocr_engine: Optional[BaseOCREngine] = None,
+    ) -> TaskResult:
         """수정/삭제가 포함된 경우 안전한 전체 재빌드."""
         cache_dir = self._get_cache_dir(folder)
         shutil.rmtree(cache_dir, ignore_errors=True)
@@ -748,7 +835,12 @@ class RegulationQASystem:
 
         all_paths = [it["path"] for it in current_items if it.get("path")]
         failed, new_docs, new_files_info, new_texts, new_metas, new_ids = self._extract_and_chunk_docs(
-            folder, all_paths, progress_cb, cancel_check
+            folder,
+            all_paths,
+            progress_cb,
+            cancel_check,
+            pdf_passwords=pdf_passwords,
+            ocr_engine=ocr_engine,
         )
         if cancel_check and cancel_check():
             return TaskResult(False, "사용자에 의해 취소됨")
@@ -777,7 +869,13 @@ class RegulationQASystem:
         )
 
     def _extract_and_chunk_docs(
-        self, folder: str, to_process: List[str], progress_cb, cancel_check=None
+        self,
+        folder: str,
+        to_process: List[str],
+        progress_cb,
+        cancel_check=None,
+        pdf_passwords: Optional[Dict[str, str]] = None,
+        ocr_engine: Optional[BaseOCREngine] = None,
     ) -> Tuple[List[str], List[Any], Dict[str, Dict[str, Any]], List[str], List[Dict[str, Any]], List[str]]:
         """문서 추출 및 청크 분할"""
         RecursiveCharacterTextSplitter = _import_attr("langchain.text_splitter", "RecursiveCharacterTextSplitter")
@@ -805,7 +903,11 @@ class RegulationQASystem:
             progress_cb(15 + int((i / len(to_process)) * 55), f"처리: {fname}")
             self.file_infos[fp].status = FileStatus.PROCESSING
             try:
-                content, error = self.extractor.extract(fp)
+                content, error = self.extractor.extract(
+                    fp,
+                    pdf_password=(pdf_passwords or {}).get(fp),
+                    ocr_engine=ocr_engine,
+                )
                 if error:
                     failed.append(f"{fname} ({error})")
                     self.file_infos[fp].status = FileStatus.FAILED
@@ -854,8 +956,5 @@ class RegulationQASystem:
         return failed, new_docs, new_cache_files, new_texts, new_metas, new_ids
 
     def cleanup(self):
-        self.documents.clear()
-        self.doc_meta.clear()
-        self.doc_ids.clear()
-        if self.bm25: self.bm25.clear()
+        self.reset_runtime_state(reset_model=False)
         gc.collect()

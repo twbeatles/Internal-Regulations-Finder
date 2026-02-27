@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
+import time
 import traceback
 from datetime import datetime
-from typing import List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
@@ -68,10 +71,52 @@ class ModelDownloadThread(BaseWorkerThread):
         super().__init__("DOWNLOAD")
         # 선택된 모델 리스트, 없으면 전체
         self.models = selected_models or list(AppConfig.AVAILABLE_MODELS.items())
+
+    def _run_download_subprocess(self, model_id: str, cache_dir: str, device: str) -> int:
+        script = (
+            "import sys\n"
+            "from langchain_huggingface import HuggingFaceEmbeddings\n"
+            "model_id = sys.argv[1]\n"
+            "cache_dir = sys.argv[2]\n"
+            "device = sys.argv[3]\n"
+            "_ = HuggingFaceEmbeddings(\n"
+            "    model_name=model_id,\n"
+            "    cache_folder=cache_dir,\n"
+            "    model_kwargs={'device': device},\n"
+            "    encode_kwargs={'normalize_embeddings': True},\n"
+            ")\n"
+        )
+        proc = subprocess.Popen(
+            [sys.executable, "-c", script, model_id, cache_dir, device],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=dict(os.environ),
+        )
+        while proc.poll() is None:
+            if self.is_canceled():
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=5)
+                except Exception:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+                return -1
+            time.sleep(0.3)
+        return int(proc.returncode or 0)
+
+    def _run_download_in_process(self, model_id: str, cache_dir: str, device: str):
+        HuggingFaceEmbeddings = _import_attr("langchain_huggingface", "HuggingFaceEmbeddings")
+        _ = HuggingFaceEmbeddings(
+            model_name=model_id,
+            cache_folder=cache_dir,
+            model_kwargs={"device": device},
+            encode_kwargs={"normalize_embeddings": True},
+        )
     
     def run(self):
         try:
-            HuggingFaceEmbeddings = _import_attr("langchain_huggingface", "HuggingFaceEmbeddings")
             torch = _import_module("torch")
             
             # 네트워크 타임아웃 설정 (5분)
@@ -94,13 +139,19 @@ class ModelDownloadThread(BaseWorkerThread):
                 self.progress.emit(percent, f"다운로드 중: {name}")
                 
                 try:
-                    # 모델 다운로드 (HuggingFaceEmbeddings가 자동으로 캐시에 저장)
-                    _ = HuggingFaceEmbeddings(
-                        model_name=model_id,
-                        cache_folder=cache_dir,
-                        model_kwargs={'device': device},
-                        encode_kwargs={'normalize_embeddings': True}
-                    )
+                    if getattr(sys, "frozen", False):
+                        # onefile 환경에서는 sys.executable -c 실행이 불가능할 수 있어 in-process 폴백
+                        if self.is_canceled():
+                            self.finished.emit(TaskResult(False, "다운로드 취소됨", op_id=self.op_id, error_code="DOWNLOAD_CANCELED"))
+                            return
+                        self._run_download_in_process(model_id, cache_dir, device)
+                    else:
+                        ret = self._run_download_subprocess(model_id, cache_dir, device)
+                        if ret == -1:
+                            self.finished.emit(TaskResult(False, "다운로드 취소됨", op_id=self.op_id, error_code="DOWNLOAD_CANCELED"))
+                            return
+                        if ret != 0:
+                            raise RuntimeError(f"서브프로세스 종료 코드: {ret}")
                     downloaded.append(name)
                     get_op_logger(self.op_id).info(f"모델 다운로드 완료: {name}")
                 except Exception as e:
@@ -135,11 +186,20 @@ class DocumentProcessorThread(BaseWorkerThread):
     progress = pyqtSignal(int, str)
     finished = pyqtSignal(object)
     
-    def __init__(self, qa, folder, files):
+    def __init__(
+        self,
+        qa,
+        folder,
+        files,
+        pdf_passwords: Optional[Dict[str, str]] = None,
+        ocr_options: Optional[Dict[str, Any]] = None,
+    ):
         super().__init__("DOCS")
         self.qa = qa
         self.folder = folder
         self.files = files
+        self.pdf_passwords = dict(pdf_passwords or {})
+        self.ocr_options = dict(ocr_options or {})
     
     def run(self):
         try:
@@ -149,6 +209,8 @@ class DocumentProcessorThread(BaseWorkerThread):
                 lambda p, m: self.progress.emit(p, m),
                 cancel_check=self.is_canceled,
                 op_id=self.op_id,
+                pdf_passwords=self.pdf_passwords,
+                ocr_options=self.ocr_options,
             )
         except Exception:
             result = self._fail("문서 처리 중 오류가 발생했습니다", "DOC_PROCESS_FAIL")

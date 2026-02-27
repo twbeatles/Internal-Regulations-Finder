@@ -31,3 +31,25 @@
 
 - `MainWindow._update_internal_state_display`의 `last_op` 키 참조를 실제 저장 키와 정렬
   - `type/status` 중심 참조에서 `kind/success` 우선 참조로 보정
+
+## Post-Refactor Functional Alignment (2026-02-27)
+
+- `runtime.get_app_directory`:
+  - non-frozen에서 `sys.argv[0]` 기준 실행 경로 사용, 실패 시 `os.getcwd()` 폴백
+- `qa_system`:
+  - `reset_runtime_state(reset_model=False)` 추가
+  - `process_documents(..., pdf_passwords, ocr_options)` 확장
+  - `clear_cache(reset_memory=True)`로 디스크+메모리 동시 초기화
+  - 문서 0건 시 BM25를 `None`으로 명시
+- `document_extractor`:
+  - `check_pdf_encrypted` 추가
+  - PDF 추출 시 비밀번호/OCREngine 훅 지원
+  - `BaseOCREngine`, `NoOpOCREngine` 추가
+  - HWP `BodyText/Section*` 다중 섹션 + raw-deflate 시도
+- `workers`:
+  - `DocumentProcessorThread`가 `pdf_passwords`, `ocr_options` 전달
+  - 모델 다운로드는 script 모드 subprocess(300ms poll 취소), frozen 모드 in-process 폴백
+- `main_window`:
+  - 암호 PDF 사전 점검/비밀번호 입력/세션 재사용
+  - 캐시 삭제 시 검색 UI 잠금 및 재로드 유도 메시지
+  - 종료 시 워커 cancel/wait 및 progress dialog 안전 종료

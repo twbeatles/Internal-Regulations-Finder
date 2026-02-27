@@ -9,12 +9,14 @@ from datetime import datetime
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtGui import QFont, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -56,6 +58,9 @@ class MainWindow(QMainWindow):
         self.font_size = AppConfig.DEFAULT_FONT_SIZE
         self.hybrid = True
         self.worker = None
+        self.download_worker = None
+        self.progress_dialog = None
+        self._pdf_password_session = {}
         self.status_timer = None  # 상태 레이블 타이머 관리
         
         self._load_config()
@@ -418,6 +423,82 @@ class MainWindow(QMainWindow):
                 json.dump({"folder": self.last_folder, "model": self.model_name, "font": self.font_size, "hybrid": self.hybrid}, f)
         except Exception as e:
             logger.warning(f"설정 저장 실패: {e}")
+
+    def _set_search_controls_enabled(self, enabled: bool):
+        self.search_input.setEnabled(enabled)
+        self.search_btn.setEnabled(enabled)
+        self.refresh_btn.setEnabled(enabled)
+
+    def _close_progress_dialog(self):
+        dlg = getattr(self, "progress_dialog", None)
+        if dlg is None:
+            return
+        try:
+            dlg.close()
+            dlg.deleteLater()
+        except Exception as e:
+            logger.debug(f"진행 다이얼로그 종료 실패(무시): {e}")
+        self.progress_dialog = None
+
+    def _stop_worker_thread(self, worker, name: str, timeout_ms: int = 3000):
+        if worker is None:
+            return
+        try:
+            if worker.isRunning():
+                if hasattr(worker, "cancel"):
+                    worker.cancel()
+                if not worker.wait(timeout_ms):
+                    logger.warning(f"{name} 스레드 종료 타임아웃({timeout_ms}ms)")
+            else:
+                worker.wait(100)
+        except Exception as e:
+            logger.warning(f"{name} 스레드 종료 중 오류: {e}")
+
+    def _collect_pdf_passwords(self, files):
+        process_files = []
+        pdf_passwords = {}
+        skipped = []
+        for fp in files:
+            if os.path.splitext(fp)[1].lower() != ".pdf":
+                process_files.append(fp)
+                continue
+
+            encrypted, error = self.qa.extractor.check_pdf_encrypted(fp)
+            if error:
+                process_files.append(fp)
+                continue
+            if not encrypted:
+                process_files.append(fp)
+                continue
+
+            if fp in self._pdf_password_session:
+                pdf_passwords[fp] = self._pdf_password_session[fp]
+                process_files.append(fp)
+                continue
+
+            prompt = (
+                f"파일: {os.path.basename(fp)}\n"
+                "암호화된 PDF입니다. 비밀번호를 입력하세요.\n"
+                "취소하면 이 파일은 건너뜁니다."
+            )
+            password, ok = QInputDialog.getText(
+                self,
+                "암호화 PDF 비밀번호",
+                prompt,
+                QLineEdit.EchoMode.Password,
+            )
+            if not ok:
+                skipped.append(f"{os.path.basename(fp)} (암호 입력 취소)")
+                continue
+            password = password.strip()
+            if not password:
+                skipped.append(f"{os.path.basename(fp)} (비밀번호 미입력)")
+                continue
+
+            self._pdf_password_session[fp] = password
+            pdf_passwords[fp] = password
+            process_files.append(fp)
+        return process_files, pdf_passwords, skipped
     
     def _load_model(self):
         self.status_label.setText("🔄 모델 로딩 중...")
@@ -429,6 +510,7 @@ class MainWindow(QMainWindow):
         worker.start()
     
     def _on_model_loaded(self, result):
+        self.worker = None
         if result.success:
             self.status_label.setText(f"✅ {result.message}")
             self.status_label.setStyleSheet("color: #10b981;")
@@ -439,6 +521,9 @@ class MainWindow(QMainWindow):
         else:
             self.status_label.setText(f"❌ {result.message}")
             self.status_label.setStyleSheet("color: #ef4444;")
+            self.folder_btn.setEnabled(False)
+            self.recent_btn.setEnabled(False)
+            self._set_search_controls_enabled(False)
             self._update_internal_state_display()
             self._show_task_error("모델 로드 오류", result)
     
@@ -463,19 +548,15 @@ class MainWindow(QMainWindow):
             self, "확인",
             "모델을 변경하면 현재 로드된 문서 인덱스가 초기화됩니다.\n계속하시겠습니까?"
         ) == QMessageBox.StandardButton.Yes:
-            # 기존 인덱스 초기화
-            self.qa.vector_store = None
-            self.qa.documents.clear()
-            self.qa.doc_meta.clear()
-            if self.qa.bm25:
-                self.qa.bm25.clear()
+            # 기존 런타임 상태 초기화
+            self.qa.reset_runtime_state(reset_model=True)
             
             # UI 초기화
-            self.search_input.setEnabled(False)
-            self.search_btn.setEnabled(False)
-            self.refresh_btn.setEnabled(False)
+            self._set_search_controls_enabled(False)
+            self.recent_btn.setEnabled(False)
             self._show_empty_state("welcome")
-            self.file_table.setRowCount(0)
+            self._update_file_table()
+            self._update_internal_state_display()
             
             # 모델 재로드
             self._save_config()
@@ -511,6 +592,20 @@ class MainWindow(QMainWindow):
         if not files:
             QMessageBox.warning(self, "경고", f"지원되는 파일이 없습니다.\n\n지원 형식: {', '.join(AppConfig.SUPPORTED_EXTENSIONS)}")
             return
+
+        files, pdf_passwords, skipped_pdf = self._collect_pdf_passwords(files)
+        if not files:
+            if skipped_pdf:
+                skipped_msg = "\n".join(skipped_pdf[:5])
+                more_msg = f"\n...외 {len(skipped_pdf) - 5}개" if len(skipped_pdf) > 5 else ""
+                QMessageBox.warning(
+                    self,
+                    "경고",
+                    f"처리할 파일이 없습니다.\n\n건너뛴 파일:\n{skipped_msg}{more_msg}",
+                )
+            else:
+                QMessageBox.warning(self, "경고", "처리할 파일이 없습니다.")
+            return
         
         self.folder_label.setText(folder)
         self.folder_label.setToolTip(folder)
@@ -523,28 +618,35 @@ class MainWindow(QMainWindow):
         self.progress_dialog.move(dialog_x, dialog_y)
         self.progress_dialog.show()
         
-        worker = DocumentProcessorThread(self.qa, folder, files)
+        worker = DocumentProcessorThread(
+            self.qa,
+            folder,
+            files,
+            pdf_passwords=pdf_passwords,
+            ocr_options={"enabled": True},
+        )
         worker.progress.connect(self.progress_dialog.update_progress)
-        worker.finished.connect(lambda r: self._on_folder_done(r, folder))
+        worker.finished.connect(lambda r, skipped=skipped_pdf: self._on_folder_done(r, folder, skipped))
         worker.finished.connect(lambda *_: worker.deleteLater())
         # 취소 시그널 연결
         self.progress_dialog.canceled.connect(worker.cancel)
         self.worker = worker
         worker.start()
     
-    def _on_folder_done(self, result, folder):
+    def _on_folder_done(self, result, folder, skipped_items=None):
         """폴더 처리 완료 핸들러"""
-        self.progress_dialog.close()
-        self.progress_dialog.deleteLater()  # 위젯 메모리 해제
+        skipped_items = list(skipped_items or [])
+        self._close_progress_dialog()
         self.folder_btn.setEnabled(True)
         self.worker = None  # 스레드 참조 해제
+
+        merged_failed = skipped_items + list(result.failed_items or [])
+        result.failed_items = merged_failed
         
         if result.success:
             self.last_folder = folder
             self._save_config()
-            self.search_input.setEnabled(True)
-            self.search_btn.setEnabled(True)
-            self.refresh_btn.setEnabled(True)
+            self._set_search_controls_enabled(True)
             self.recent_btn.setEnabled(True)
             self._update_file_table()
             self._update_cache_size_display()
@@ -556,9 +658,9 @@ class MainWindow(QMainWindow):
             self.search_input.setFocus()
             
             # 처리 실패 파일이 있으면 알림
-            if result.failed_items:
-                failed_count = len(result.failed_items)
-                failed_list = "\n".join(result.failed_items[:5])  # 최대 5개만 표시
+            if merged_failed:
+                failed_count = len(merged_failed)
+                failed_list = "\n".join(merged_failed[:5])  # 최대 5개만 표시
                 more_msg = f"\n...외 {failed_count - 5}개" if failed_count > 5 else ""
                 QMessageBox.warning(
                     self, 
@@ -627,6 +729,9 @@ class MainWindow(QMainWindow):
     def _search(self):
         query = self.search_input.text().strip()
         if not query:
+            return
+        if len(query) < 2:
+            self._show_status("⚠️ 검색어는 최소 2자 이상 입력하세요.", "#f59e0b", 2500)
             return
         if not self.qa.vector_store:
             QMessageBox.warning(self, "경고", "문서를 먼저 로드하세요")
@@ -970,10 +1075,14 @@ class MainWindow(QMainWindow):
     
     def _clear_cache(self):
         if QMessageBox.question(self, "확인", "캐시를 삭제하시겠습니까?") == QMessageBox.StandardButton.Yes:
-            self.qa.clear_cache()
+            self.qa.clear_cache(reset_memory=True)
+            self._set_search_controls_enabled(False)
+            self.recent_btn.setEnabled(False)
+            self._show_empty_state("welcome")
+            self._update_file_table()
             self._update_cache_size_display()  # 캐시 크기 업데이트
             self._update_internal_state_display()
-            self._show_status("✅ 캐시 삭제됨", "#10b981", 3000)
+            self._show_status("✅ 디스크+메모리 캐시 삭제 완료. 폴더를 다시 로드하세요.", "#10b981", 3500)
     
     def _clear_history(self):
         if QMessageBox.question(self, "확인", "히스토리를 삭제하시겠습니까?") == QMessageBox.StandardButton.Yes:
@@ -1082,8 +1191,7 @@ class MainWindow(QMainWindow):
     
     def _on_download_done(self, result):
         """모델 다운로드 완료 핸들러"""
-        self.progress_dialog.close()
-        self.progress_dialog.deleteLater()
+        self._close_progress_dialog()
         self.download_worker = None
         
         self._update_model_status()
@@ -1108,5 +1216,10 @@ class MainWindow(QMainWindow):
     
     def closeEvent(self, event):
         self._save_config()
+        self._close_progress_dialog()
+        self._stop_worker_thread(self.worker, "main_worker")
+        self._stop_worker_thread(self.download_worker, "download_worker")
+        self.worker = None
+        self.download_worker = None
         self.qa.cleanup()
         event.accept()

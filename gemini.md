@@ -37,6 +37,8 @@
 - 캐시 루트: `%TEMP%/reg_qa_v90`
 - 캐시 스키마 검증 실패 시 안전 삭제 후 재생성
 - 하이브리드 점수: 벡터 + BM25 정규화 결합
+- `reset_runtime_state(reset_model=...)`로 세션/모델 상태 초기화 지원
+- `clear_cache(reset_memory=True)` 기본값으로 디스크+메모리 동시 초기화
 
 ### BM25Light
 - 한국어/영문 혼합 토큰 처리
@@ -49,8 +51,18 @@
 
 - 설정 탭의 `📥 오프라인 모델 다운로드`에서 선택 다운로드 지원
 - 타임아웃: `HF_HUB_DOWNLOAD_TIMEOUT = 300`
+- 다운로드 취소: 스크립트 실행 시 subprocess + 300ms poll, frozen(exe) 환경은 in-process 폴백
 - 모델/설정/로그 저장 위치는 `get_data_directory()` 정책(포터블 우선 + 사용자 폴더 폴백)
 - `🧰 진단 내보내기`: 환경/설정/로그/캐시 요약 zip 생성
+
+---
+
+## 📄 문서 추출 동작
+
+- 암호화 PDF는 처리 시작 전에 감지하고 UI에서 비밀번호 즉시 입력
+- 입력된 PDF 비밀번호는 세션 메모리에만 저장(디스크 미저장)
+- OCR 엔진은 기본 미포함이며 `BaseOCREngine` 확장 포인트만 제공
+- HWP는 `BodyText/Section*` 다중 섹션 결합을 우선 시도하고 `PrvText`로 폴백
 
 ---
 
@@ -77,11 +89,18 @@ python tools/symbol_inventory.py --paths regfinder "사내 규정검색기 v9 Py
 python tools/smoke_refactor.py
 ```
 
+### pytest 검증
+
+```bash
+pytest -q
+```
+
 검증 항목:
 - 정적 컴파일
 - 모듈 import
 - 심볼 전후 diff
 - 핵심 객체 생성 sanity check
+- 핵심 단위 테스트 통과
 
 ---
 

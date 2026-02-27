@@ -62,10 +62,20 @@ def get_op_logger(op_id: Optional[str]) -> logging.LoggerAdapter:
 
 
 def get_app_directory() -> str:
-    """애플리케이션의 실행 경로 또는 스크립트 경로 반환"""
+    """애플리케이션 실행 루트 경로 반환."""
     if getattr(sys, 'frozen', False):
         return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.abspath(__file__))
+    try:
+        entry = sys.argv[0] if sys.argv else ""
+        if entry:
+            abs_entry = os.path.abspath(entry)
+            if os.path.isfile(abs_entry):
+                return os.path.dirname(abs_entry)
+            if os.path.isdir(abs_entry):
+                return abs_entry
+    except Exception:
+        pass
+    return os.getcwd()
 
 
 def _is_dir_writable(path: str) -> bool:

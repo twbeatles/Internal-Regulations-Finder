@@ -10,7 +10,11 @@
 - 하이브리드 검색(벡터 70% + BM25 30%)
 - 검색어 하이라이트, 검색 시간 표시, 결과 TXT/CSV 내보내기
 - 증분 인덱싱/캐시(변경 파일만 재처리)
+- 암호화 PDF 비밀번호 즉시 입력(세션 내 재사용)
+- 캐시 삭제 시 디스크+메모리 동시 초기화
+- OCR 인터페이스 확장 포인트 제공(엔진 미포함)
 - 오프라인 모델 다운로드(선택 다운로드)
+- 모델 다운로드 취소 응답성 개선(스크립트 실행 시 subprocess + 300ms 폴링, EXE는 in-process 폴백)
 - 진단 번들(zip) 내보내기(환경/설정/로그/캐시 요약)
 - 작업 실패 시 상세 디버그 정보(`TaskResult.debug`) 확인
 
@@ -81,6 +85,14 @@ Internal-Regulations-Finder-main/
 ├── tools/
 │   ├── symbol_inventory.py               # 심볼 인벤토리/비교
 │   └── smoke_refactor.py                 # 정적+import+sanity 스모크
+├── tests/
+│   ├── test_file_utils.py
+│   ├── test_runtime_paths.py
+│   ├── test_qa_state_reset.py
+│   ├── test_bm25_state.py
+│   ├── test_document_extractor_pdf.py
+│   └── test_document_extractor_hwp.py
+├── pytest.ini
 ├── docs/
 │   ├── refactor_mapping.md
 │   └── refactor_checklist.md
@@ -123,18 +135,26 @@ python tools/symbol_inventory.py --paths regfinder "사내 규정검색기 v9 Py
 python tools/smoke_refactor.py
 ```
 
+### pytest 검증
+
+```bash
+pytest -q
+```
+
 검증 항목:
 
 - `py_compile` 전체 통과
 - 분할 전/후 심볼 누락 0
 - 모듈 import 통과
 - 핵심 객체 생성 및 기본 sanity 체크 통과
+- 핵심 로직 단위 테스트 통과(`pytest`)
 
 ---
 
 ## ⚙️ 데이터 저장 정책
 
 - 우선 실행 폴더(포터블) 저장
+- 비-frozen 실행 시 `sys.argv[0]` 기준의 실제 엔트리 경로를 실행 폴더로 사용
 - 실행 폴더가 쓰기 불가이면 사용자 경로(`LOCALAPPDATA`/`APPDATA`)로 폴백
 - 적용 대상: `config.json`, `search_history.json`, `logs/`, `models/`
 
@@ -142,9 +162,9 @@ python tools/smoke_refactor.py
 
 ## 🧪 알려진 제한
 
-- 이미지 기반 PDF는 텍스트 추출 불가
-- 암호화 PDF는 비밀번호 입력 UI 미지원
-- HWP 처리는 `olefile` 설치 필요
+- 이미지 기반 PDF는 기본적으로 OCR 엔진이 연결되어 있지 않아 텍스트 추출 불가
+- 암호화 PDF는 문서 로드 시작 시 비밀번호 입력이 필요(세션 메모리 저장, 디스크 저장 안 함)
+- HWP는 `BodyText/Section*` 다중 섹션을 우선 처리하며, 형식 손상/변형 문서는 실패할 수 있음
 
 ---
 

@@ -33,7 +33,7 @@ This file tracks architecture and maintenance rules after modularization and fol
 - `VECTOR_WEIGHT=0.7`, `BM25_WEIGHT=0.3`
 - `CACHE_SCHEMA_VERSION=2`
 - `CONFIG_SCHEMA_VERSION=2`
-- cache root: `tempfile.gettempdir()/reg_qa_v90`
+- data root: portable app directory first, then `LOCALAPPDATA/APPDATA`
 
 ---
 
@@ -66,6 +66,14 @@ This file tracks architecture and maintenance rules after modularization and fol
 
 ---
 
+## 🧰 Repository Assets
+
+- `pyrightconfig.json`: repo-wide Pylance/Pyright baseline
+- `.editorconfig`: UTF-8, LF, whitespace policy
+- `.gitattributes`: tracked text file line-ending normalization
+
+---
+
 ## 📦 Build Notes (PyInstaller)
 
 - Entry script: `사내 규정검색기 v9 PyQt6.py`
@@ -76,11 +84,15 @@ This file tracks architecture and maintenance rules after modularization and fol
   - `regfinder.main_window_ui_mixin`
   - `regfinder.main_window_mixins`
   - `regfinder.qa_system_mixins`
+- Spec excludes dev-only tooling such as `pytest`, `pyright`, `mypy`
 
 ---
 
-## ✅ Validation
+## ✅ Validation Gates
 
+- `pyright .`
 - `python tools/smoke_refactor.py`
+- `python -m py_compile "사내 규정검색기 v9 PyQt6.spec"`
 - `python -m unittest discover -s tests -v`
 - `pytest -q`
+- tracked text files should remain `UTF-8` without BOM

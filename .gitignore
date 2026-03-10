@@ -50,10 +50,16 @@ models/
 # User/local config and history
 config.json
 search_history.json
+bookmarks.json
+recent_folders.json
+search_log.json
 
-# User request: do not upload txt/json/db
-*.txt
-*.json
+# Runtime exports / local state
 *.db
 *.sqlite
 *.sqlite3
+diagnostics_*.zip
+북마크_*.txt
+북마크_*.csv
+검색결과_*.txt
+검색결과_*.csv

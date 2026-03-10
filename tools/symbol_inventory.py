@@ -6,7 +6,12 @@ import argparse
 import ast
 import json
 from pathlib import Path
-from typing import Dict, Iterable, List, Set
+from typing import Dict, Iterable, List, Set, TypedDict
+
+
+class SymbolInventory(TypedDict):
+    file: str
+    symbols: List[str]
 
 
 def iter_python_files(paths: Iterable[str]) -> List[Path]:
@@ -21,7 +26,7 @@ def iter_python_files(paths: Iterable[str]) -> List[Path]:
     return dedup
 
 
-def collect_symbols(py_file: Path) -> Dict[str, List[str]]:
+def collect_symbols(py_file: Path) -> SymbolInventory:
     tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
     symbols: List[str] = []
     for node in tree.body:

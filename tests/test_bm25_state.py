@@ -1,4 +1,4 @@
-﻿from regfinder.qa_system import RegulationQASystem
+from regfinder.qa_system import RegulationQASystem
 
 
 def test_build_bm25_sets_none_when_docs_empty():

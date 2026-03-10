@@ -1,4 +1,4 @@
-﻿import os
+import os
 
 from regfinder import file_utils as file_utils_module
 from regfinder.file_utils import FileUtils

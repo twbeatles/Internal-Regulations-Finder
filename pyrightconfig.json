@@ -1,0 +1,19 @@
+{
+  "pythonVersion": "3.14",
+  "typeCheckingMode": "standard",
+  "include": [
+    "regfinder",
+    "tests",
+    "tools",
+    "사내 규정검색기 v9 PyQt6.py"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    ".pytest_cache",
+    "build",
+    "dist",
+    "docs",
+    "logs",
+    "artifacts"
+  ]
+}

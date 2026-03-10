@@ -2,10 +2,22 @@
 
 ## 1. Static checks
 
+- [ ] `pyright .` 통과 (`0 errors`)
 - [ ] `python tools/smoke_refactor.py` 통과
 - [ ] `python -m py_compile "사내 규정검색기 v9 PyQt6.spec"` 통과
 - [ ] `python -m unittest discover -s tests -v` 통과
 - [ ] `pytest -q` 통과
+- [ ] 추적 텍스트 파일 `UTF-8(no BOM)` / `LF` 유지 확인
+
+## 1-1. 권장 검증 명령
+
+```bash
+pyright .
+python tools/smoke_refactor.py
+python -m py_compile "사내 규정검색기 v9 PyQt6.spec"
+python -m unittest discover -s tests -v
+pytest -q
+```
 
 ## 2. App startup
 

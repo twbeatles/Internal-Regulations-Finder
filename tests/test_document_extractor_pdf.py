@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 from regfinder.document_extractor import BaseOCREngine, DocumentExtractor
 
@@ -30,9 +30,7 @@ class DummyOCREngine(BaseOCREngine):
 
 
 def _make_extractor():
-    extractor = DocumentExtractor()
-    extractor._pdf_module = FakePdfReader
-    return extractor
+    return DocumentExtractor(pdf_reader_factory=FakePdfReader)
 
 
 def test_check_pdf_encrypted(tmp_path):

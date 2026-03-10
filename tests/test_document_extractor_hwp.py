@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 import zlib
 
 from regfinder.document_extractor import DocumentExtractor
@@ -58,8 +58,7 @@ def test_extract_hwp_supports_multiple_sections(tmp_path):
         }
     }
 
-    extractor = DocumentExtractor()
-    extractor._hwp_module = FakeHwpModule(fixtures)
+    extractor = DocumentExtractor(hwp_module=FakeHwpModule(fixtures))
 
     content, error = extractor.extract(str(fp))
 
@@ -79,8 +78,7 @@ def test_extract_hwp_reports_failure_reason(tmp_path):
         }
     }
 
-    extractor = DocumentExtractor()
-    extractor._hwp_module = FakeHwpModule(fixtures)
+    extractor = DocumentExtractor(hwp_module=FakeHwpModule(fixtures))
 
     content, error = extractor.extract(str(fp))
 

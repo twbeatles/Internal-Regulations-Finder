@@ -8,7 +8,7 @@ import sys
 import traceback
 import zipfile
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
 from .app_types import AppConfig, TaskResult
 from .runtime import (
@@ -22,9 +22,17 @@ from .runtime import (
     new_op_id,
 )
 
+if TYPE_CHECKING:
+    from .qa_system import RegulationQASystem
+
+
+def _as_qa(instance: object) -> RegulationQASystem:
+    return cast("RegulationQASystem", instance)
+
 
 class RegulationQADiagnosticsMixin:
     def collect_diagnostics(self) -> Dict[str, Any]:
+        self = _as_qa(self)
         try:
             frozen = bool(getattr(sys, "frozen", False))
             env = {
@@ -79,6 +87,7 @@ class RegulationQADiagnosticsMixin:
             return {"error": traceback.format_exc()}
 
     def export_diagnostics_zip(self, path: str) -> TaskResult:
+        self = _as_qa(self)
         op_id = new_op_id("DIAG")
         log = get_op_logger(op_id)
         started = datetime.now()
@@ -130,12 +139,15 @@ class RegulationQADiagnosticsMixin:
             return TaskResult(False, f"진단 번들 생성 실패: {e}", op_id=op_id, error_code="DIAG_EXPORT_FAIL", debug=traceback.format_exc())
 
     def get_cache_root(self) -> str:
+        self = _as_qa(self)
         return self.cache_path
 
     def get_cache_dir_for_folder(self, folder: str) -> str:
+        self = _as_qa(self)
         return self._get_cache_dir(folder)
 
     def get_cache_usage_bytes(self) -> int:
+        self = _as_qa(self)
         total = 0
         if not os.path.exists(self.cache_path):
             return 0
@@ -149,10 +161,12 @@ class RegulationQADiagnosticsMixin:
         return total
 
     def get_last_operation(self) -> Dict[str, Any]:
+        self = _as_qa(self)
         with self._diagnostics_lock:
             return dict(self.last_op or {})
 
     def get_index_status(self, folder: Optional[str] = None) -> Dict[str, Any]:
+        self = _as_qa(self)
         data: Dict[str, Any] = {
             "cache_root": self.cache_path,
             "vector_loaded": bool(self.vector_store),

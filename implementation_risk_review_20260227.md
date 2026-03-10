@@ -1,4 +1,4 @@
-﻿# 기능 구현 점검 리포트 (2026-02-27)
+# 기능 구현 점검 리포트 (2026-02-27)
 
 ## 1) 점검 범위
 - 기준 문서: `README.md`, `claude.md`
@@ -169,3 +169,10 @@
 - [x] `docs/refactor_mapping.md`에 post-refactor 정렬 항목 추가
 - [x] `사내 규정검색기 v9 PyQt6.spec` 주석에 frozen 다운로드 폴백 동작 명시
 
+## 8) 후속 유지보수 정렬 (2026-03-10)
+- [x] `pyrightconfig.json` 추가로 Pylance/Pyright 기준을 저장소 루트에 고정
+- [x] `.editorconfig`, `.gitattributes` 추가로 UTF-8(no BOM) / LF / final newline 정책 고정
+- [x] `pyright .` 기준 오류 0건으로 정리
+- [x] 추적 텍스트 파일 BOM 제거 및 UTF-8 정규화
+- [x] `README.md`, `claude.md`, `gemini.md`, `docs/*.md` 검증 절차를 `pyright` 기준까지 동기화
+- [x] `.gitignore`를 개발 설정 파일 추적 가능하도록 조정하고, 런타임 산출물 및 로컬 상태 파일 ignore를 더 구체화

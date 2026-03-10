@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 import os
@@ -6,7 +6,7 @@ import shutil
 from datetime import datetime
 
 from PyQt6.QtCore import QTimer, Qt
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QCloseEvent, QFont
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -122,10 +122,12 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         """)
         for folder in folders:
             action = menu.addAction(f"📂 {folder}")
-            action.triggered.connect(lambda checked=False, p=folder: self._load_folder(p))
+            if action is not None:
+                action.triggered.connect(lambda checked=False, p=folder: self._load_folder(p))
         menu.addSeparator()
         clear_action = menu.addAction("🗑️ 최근 폴더 비우기")
-        clear_action.triggered.connect(self._clear_recent_folders)
+        if clear_action is not None:
+            clear_action.triggered.connect(self._clear_recent_folders)
         menu.exec(self.recent_btn.mapToGlobal(self.recent_btn.rect().bottomLeft()))
     
     def _refresh(self):
@@ -458,12 +460,19 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
     def _clear_results(self):
         while self.result_layout.count():
             item = self.result_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            if item is None:
+                continue
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
     
     def _copy_text(self, text):
         """텍스트 복사 및 상태 표시"""
-        QApplication.clipboard().setText(text)
+        clipboard = QApplication.clipboard()
+        if clipboard is None:
+            logger.warning("클립보드가 초기화되지 않았습니다")
+            return
+        clipboard.setText(text)
         self._show_status("✅ 클립보드에 복사됨", "#10b981", 2000)
     
     def _show_status(self, message: str, color: str = "#eaeaea", duration: int = 0):
@@ -538,11 +547,13 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         
         for query in history_items:
             action = menu.addAction(f"🔍 {query}")
-            action.triggered.connect(lambda checked, q=query: self._search_from_history(q))
+            if action is not None:
+                action.triggered.connect(lambda checked, q=query: self._search_from_history(q))
         
         menu.addSeparator()
         clear_action = menu.addAction("🗑️ 히스토리 삭제")
-        clear_action.triggered.connect(self._clear_history)
+        if clear_action is not None:
+            clear_action.triggered.connect(self._clear_history)
         
         # 버튼 아래에 메뉴 표시
         menu.exec(self.history_btn.mapToGlobal(self.history_btn.rect().bottomLeft()))
@@ -717,9 +728,13 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             )
             self._show_task_error("다운로드 결과", r, icon=QMessageBox.Icon.Warning)
     
-    def closeEvent(self, event):
+    def closeEvent(self, a0: QCloseEvent | None):
         self.workers.cancel_all()
+        progress_dialog = getattr(self, "progress_dialog", None)
+        if progress_dialog is not None:
+            progress_dialog.close()
+            progress_dialog.deleteLater()
         self._save_config()
         self.qa.cleanup()
-        event.accept()
-
+        if a0 is not None:
+            a0.accept()

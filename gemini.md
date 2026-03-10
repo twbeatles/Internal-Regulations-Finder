@@ -6,6 +6,7 @@
 - 2차 리팩토링: UI 빌더/설정·진단 로직/QA 진단 로직을 믹스인으로 추가 분리
 - 워커 관리는 `WorkerRegistry`로 통합
 - 설정은 `ConfigManager`(schema_version=2) 기반으로 마이그레이션 처리
+- 정적 분석 기준은 `pyrightconfig.json`으로 고정
 
 ## 현재 사용자 기능
 
@@ -22,11 +23,14 @@
 2. 시그널 기반으로만 UI 업데이트
 3. 검색/인덱스 상태는 `RegulationQASystem` public API를 통해 조회
 4. 종료 시 워커 취소 및 리소스 정리
+5. 추적 텍스트 파일은 `.editorconfig`, `.gitattributes` 기준으로 `UTF-8(no BOM)` / `LF` 유지
 
 ## 검증 명령
 
 ```bash
+pyright .
 python tools/smoke_refactor.py
+python -m py_compile "사내 규정검색기 v9 PyQt6.spec"
 python -m unittest discover -s tests -v
 pytest -q
 ```

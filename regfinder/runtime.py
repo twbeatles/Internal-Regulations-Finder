@@ -7,18 +7,20 @@ import logging
 import os
 import sys
 from datetime import datetime
-from typing import Optional
+from types import ModuleType
+from typing import Any, MutableMapping, Optional
 
 from .app_types import AppConfig
 
-def _import_module(module: str):
+
+def _import_module(module: str) -> ModuleType:
     try:
         return importlib.import_module(module)
     except Exception as e:
         raise ImportError(f"필수 모듈을 불러올 수 없습니다: {module} ({e})") from e
 
 
-def _import_attr(module: str, attr: str):
+def _import_attr(module: str, attr: str) -> Any:
     mod = _import_module(module)
     try:
         return getattr(mod, attr)
@@ -51,9 +53,17 @@ def new_op_id(prefix: str) -> str:
 
 
 class OpLoggerAdapter(logging.LoggerAdapter):
-    def process(self, msg, kwargs):
-        extra = kwargs.setdefault("extra", {})
-        extra.setdefault("op_id", self.extra.get("op_id", "-"))
+    def process(self, msg: object, kwargs: MutableMapping[str, Any]) -> tuple[object, MutableMapping[str, Any]]:
+        raw_extra = kwargs.get("extra")
+        extra: dict[str, Any]
+        if isinstance(raw_extra, dict):
+            extra = raw_extra
+        else:
+            extra = {}
+            kwargs["extra"] = extra
+
+        adapter_extra = self.extra if isinstance(self.extra, dict) else {}
+        extra.setdefault("op_id", adapter_extra.get("op_id", "-"))
         return msg, kwargs
 
 

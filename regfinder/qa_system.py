@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 import gc
@@ -276,6 +276,7 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
         # 2) 수정/삭제 감지 시: 부분 삭제 시도 후 실패 시 전체 재빌드
         if need_rebuild_or_delete:
             affected_keys = set(deleted_keys) | set(modified_keys)
+            failed: List[str] = []
 
             can_partial_delete = (
                 loaded_cache
@@ -338,12 +339,11 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
                     self._save_cache(cache_dir, cache_info)
                     progress_cb(100, "완료!")
 
-                    failed_items = failed if "failed" in locals() else []
                     return TaskResult(
                         True,
                         f"변경 사항 반영 완료 (삭제 {len(deleted_keys)} / 수정 {len(modified_keys)} / 추가 {len(added_keys)})",
                         {"chunks": len(self.documents), "cached": len(unchanged_keys), "new": len(added_keys) + len(modified_keys)},
-                        failed_items,
+                        failed,
                     )
 
             # 부분 삭제 불가/실패: 전체 재빌드

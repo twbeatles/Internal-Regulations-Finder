@@ -12,7 +12,7 @@ from .runtime import logger
 
 class FileUtils:
     @staticmethod
-    def safe_read(path: str) -> Tuple[Optional[str], Optional[str]]:
+    def safe_read(path: str) -> Tuple[str, Optional[str]]:
         try:
             with open(path, 'rb') as f:
                 raw_data = f.read()
@@ -21,7 +21,7 @@ class FileUtils:
             res = charset_normalizer.from_bytes(raw_data).best()
             if res and res.encoding:
                 encoding = res.encoding
-                confidence = res.coherence
+                confidence = float(res.coherence or 0.0)
             else:
                 encoding, confidence = 'utf-8', 0
                 
@@ -35,7 +35,7 @@ class FileUtils:
             return raw_data.decode(encoding, errors='ignore'), None
         except Exception as e:
             logger.exception(f"파일 읽기 오류: {path}")
-            return None, str(e)
+            return "", str(e)
     
     @staticmethod
     def get_metadata(path: str) -> Optional[Dict]:
@@ -60,8 +60,9 @@ class FileUtils:
     
     @staticmethod
     def format_size(size: int) -> str:
+        size_value = float(size)
         for unit in ['B', 'KB', 'MB', 'GB']:
-            if size < 1024:
-                return f"{size:.1f}{unit}"
-            size /= 1024
-        return f"{size:.1f}TB"
+            if size_value < 1024:
+                return f"{size_value:.1f}{unit}"
+            size_value /= 1024
+        return f"{size_value:.1f}TB"

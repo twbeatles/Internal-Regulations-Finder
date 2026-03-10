@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Dict, List
+from typing import Any, Callable, Dict, List
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QTextCursor, QTextCharFormat
+from PyQt6.QtGui import QColor, QFont, QMouseEvent, QTextCursor, QTextCharFormat
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
@@ -57,13 +57,34 @@ class SearchHistory:
     def clear(self): self.items = []; self._save()
 
 
+class FileLinkLabel(QLabel):
+    def __init__(self, text: str, path: str):
+        super().__init__(text)
+        self._path = path
+        self.setToolTip(f"📁 {path}\n더블클릭으로 파일 열기")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mousePressEvent(self, ev: QMouseEvent | None) -> None:
+        if ev is not None and ev.button() == Qt.MouseButton.LeftButton:
+            FileUtils.open_file(self._path)
+        super().mousePressEvent(ev)
+
+
 # ============================================================================
 # 결과 카드
 # ============================================================================
 class ResultCard(QFrame):
     """검색 결과를 표시하는 카드 위젯"""
     
-    def __init__(self, idx: int, data: Dict, on_copy, on_bookmark=None, font_size: int = 12, query: str = ""):
+    def __init__(
+        self,
+        idx: int,
+        data: Dict[str, Any],
+        on_copy: Callable[[str], None],
+        on_bookmark: Callable[[Dict[str, Any]], None] | None = None,
+        font_size: int = 12,
+        query: str = "",
+    ):
         super().__init__()
         self.setObjectName("resultCard")
         self.data = data
@@ -99,12 +120,13 @@ class ResultCard(QFrame):
         header.addWidget(badge)
         
         # 파일명
-        source = QLabel(data['source'])
+        source_path = str(data.get('path', ''))
+        source: QLabel
+        if source_path:
+            source = FileLinkLabel(str(data['source']), source_path)
+        else:
+            source = QLabel(str(data['source']))
         source.setStyleSheet("color: #e94560; font-size: 12px; font-weight: bold;")
-        if data.get('path'):
-            source.setToolTip(f"📁 {data['path']}\n더블클릭으로 파일 열기")
-            source.setCursor(Qt.CursorShape.PointingHandCursor)
-            source.mousePressEvent = lambda e: FileUtils.open_file(data['path']) if e.button() == Qt.MouseButton.LeftButton else None
         header.addWidget(source)
         
         header.addStretch()
@@ -146,11 +168,12 @@ class ResultCard(QFrame):
         btn_container.addWidget(copy_btn)
 
         if self.on_bookmark is not None:
+            bookmark_handler = self.on_bookmark
             save_btn = QPushButton("⭐ 저장")
             save_btn.setFixedHeight(30)
             save_btn.setFixedWidth(75)
             save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            save_btn.clicked.connect(lambda: self.on_bookmark(data))
+            save_btn.clicked.connect(lambda: bookmark_handler(data))
             btn_container.addWidget(save_btn)
         
         if data.get('path'):
@@ -349,4 +372,6 @@ class DebugDetailsDialog(QDialog):
         layout.addLayout(btn_row)
 
     def _copy(self):
-        QApplication.clipboard().setText(self.text.toPlainText())
+        clipboard = QApplication.clipboard()
+        if clipboard is not None:
+            clipboard.setText(self.text.toPlainText())

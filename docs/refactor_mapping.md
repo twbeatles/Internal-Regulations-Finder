@@ -41,3 +41,13 @@
 - 실행 엔트리 유지: `python "사내 규정검색기 v9 PyQt6.py"`
 - PyInstaller 진입 유지: `사내 규정검색기 v9 PyQt6.spec`
 - spec hiddenimports에 신규 internal 모듈 추가 반영
+- 정적 분석 기준은 `pyrightconfig.json`으로 저장소 루트에 고정
+- 텍스트 인코딩/줄바꿈 정책은 `.editorconfig` + `.gitattributes`로 고정
+
+---
+
+## Repository Hygiene
+
+- `pyright .` 기준 오류 0건 유지
+- 추적 텍스트 파일은 `UTF-8(no BOM)` 유지
+- 런타임 로컬 상태 파일과 결과 내보내기 산출물은 `.gitignore`로 분리 관리

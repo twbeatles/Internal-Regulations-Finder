@@ -1,5 +1,6 @@
-﻿import os
+import os
 
+from regfinder.app_types import FileInfo
 from regfinder.qa_system import RegulationQASystem
 
 
@@ -11,7 +12,7 @@ def test_reset_runtime_state_clears_all():
     qa.documents = ["doc"]
     qa.doc_meta = [{"a": 1}]
     qa.doc_ids = ["doc#0"]
-    qa.file_infos["x"] = object()
+    qa.file_infos["x"] = FileInfo("x", "x", ".txt", 0)
     qa.current_folder = "C:/tmp"
     qa._vector_id_mode = "doc_id"
 

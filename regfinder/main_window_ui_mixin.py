@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
@@ -8,6 +10,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QFrame,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QPushButton,
@@ -18,15 +21,28 @@ from PyQt6.QtWidgets import (
     QTabWidget,
     QVBoxLayout,
     QWidget,
-    QHeaderView,
 )
 
 from .app_types import AppConfig
 
+if TYPE_CHECKING:
+    from .main_window import MainWindow
+
+
+def _as_window(instance: object) -> MainWindow:
+    return cast("MainWindow", instance)
+
 
 class MainWindowUIBuilderMixin:
-    def _init_ui(self):
+    def _card_layout(self, card: QFrame) -> QVBoxLayout:
+        layout = card.layout()
+        if not isinstance(layout, QVBoxLayout):
+            raise RuntimeError("QVBoxLayout 카드가 필요합니다")
+        return layout
+
+    def _init_ui(self) -> None:
         """UI 초기화"""
+        self = _as_window(self)
         self.setWindowTitle(f"{AppConfig.APP_NAME} v{AppConfig.APP_VERSION}")
         self.setMinimumSize(1000, 700)
         self.resize(1200, 800)
@@ -36,16 +52,18 @@ class MainWindowUIBuilderMixin:
         self._setup_tabs()
         self._setup_shortcuts()
 
-    def _setup_main_layout(self):
+    def _setup_main_layout(self) -> None:
         """메인 레이아웃 설정"""
+        self = _as_window(self)
         central = QWidget()
         self.setCentralWidget(central)
         self.main_layout = QVBoxLayout(central)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
 
-    def _setup_header(self):
+    def _setup_header(self) -> None:
         """헤더 영역 생성"""
+        self = _as_window(self)
         header = QFrame()
         header.setFixedHeight(60)
         header.setStyleSheet("background: #0f3460;")
@@ -68,8 +86,9 @@ class MainWindowUIBuilderMixin:
 
         self.main_layout.addWidget(header)
 
-    def _setup_tabs(self):
+    def _setup_tabs(self) -> None:
         """탭 위젯 설정"""
+        self = _as_window(self)
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
         self.main_layout.addWidget(self.tabs)
@@ -80,19 +99,22 @@ class MainWindowUIBuilderMixin:
         self.tabs.addTab(self._create_diagnostics_view(), "🧰 진단")
         self.tabs.addTab(self._create_settings_view(), "⚙️ 설정")
 
-    def _setup_shortcuts(self):
+    def _setup_shortcuts(self) -> None:
         """키보드 단축키 설정"""
+        self = _as_window(self)
         QShortcut(QKeySequence("Ctrl+O"), self).activated.connect(self._open_folder)
         QShortcut(QKeySequence("Ctrl+F"), self).activated.connect(self._focus_search)
 
-    def _focus_search(self):
+    def _focus_search(self) -> None:
         """검색창에 포커스"""
+        self = _as_window(self)
         self.tabs.setCurrentIndex(0)
         self.search_input.setFocus()
         self.search_input.selectAll()
 
     def _create_search_view(self) -> QWidget:
         """검색 탭 뷰 생성"""
+        self = _as_window(self)
         view = QWidget()
         layout = QVBoxLayout(view)
         layout.setContentsMargins(20, 20, 20, 20)
@@ -116,6 +138,7 @@ class MainWindowUIBuilderMixin:
 
     def _create_folder_control_panel(self) -> QFrame:
         """폴더 열기 및 새로고침 패널 생성"""
+        self = _as_window(self)
         panel = QFrame()
         panel.setObjectName("card")
         layout = QHBoxLayout(panel)
@@ -145,6 +168,7 @@ class MainWindowUIBuilderMixin:
 
     def _create_search_input_panel(self) -> QFrame:
         """검색 입력 및 설정 패널 생성"""
+        self = _as_window(self)
         panel = QFrame()
         panel.setObjectName("card")
         layout = QHBoxLayout(panel)
@@ -210,6 +234,7 @@ class MainWindowUIBuilderMixin:
 
     def _create_files_view(self) -> QWidget:
         """파일 탭 뷰 생성"""
+        self = _as_window(self)
         view = QWidget()
         layout = QVBoxLayout(view)
         layout.setContentsMargins(20, 20, 20, 20)
@@ -239,7 +264,9 @@ class MainWindowUIBuilderMixin:
         self.file_table = QTableWidget()
         self.file_table.setColumnCount(4)
         self.file_table.setHorizontalHeaderLabels(["상태", "파일명", "크기", "청크"])
-        self.file_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header = self.file_table.horizontalHeader()
+        if header is not None:
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.file_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.file_table.setAlternatingRowColors(True)
         self.file_table.setSortingEnabled(True)
@@ -250,26 +277,29 @@ class MainWindowUIBuilderMixin:
 
     def _create_settings_view(self) -> QWidget:
         """설정 탭 뷰 생성"""
+        self = _as_window(self)
         view = QWidget()
         layout = QVBoxLayout(view)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
 
         search_card = self._create_setting_card("🔍 검색 설정")
+        search_layout = self._card_layout(search_card)
         self.hybrid_check = QCheckBox("하이브리드 검색 (벡터 + 키워드)")
         self.hybrid_check.setChecked(self.hybrid)
         self.hybrid_check.stateChanged.connect(lambda: setattr(self, "hybrid", self.hybrid_check.isChecked()))
         self.hybrid_check.setToolTip("벡터 검색과 키워드 검색을 결합하여 더 정확한 결과 제공")
-        search_card.layout().addWidget(self.hybrid_check)
+        search_layout.addWidget(self.hybrid_check)
 
         self.recursive_check = QCheckBox("하위 폴더 포함 검색")
         self.recursive_check.setChecked(self.recursive)
         self.recursive_check.setToolTip("선택한 폴더의 모든 하위 폴더에서도 문서를 검색합니다")
         self.recursive_check.stateChanged.connect(lambda: setattr(self, "recursive", self.recursive_check.isChecked()))
-        search_card.layout().addWidget(self.recursive_check)
+        search_layout.addWidget(self.recursive_check)
         layout.addWidget(search_card)
 
         display_card = self._create_setting_card("🎨 표시 설정")
+        display_layout = self._card_layout(display_card)
         font_row = QHBoxLayout()
         font_row.addWidget(QLabel("결과 폰트 크기:"))
         self.font_slider = QSlider(Qt.Orientation.Horizontal)
@@ -280,15 +310,16 @@ class MainWindowUIBuilderMixin:
         self.font_size_label = QLabel(f"{self.font_size}pt")
         self.font_size_label.setStyleSheet("color: #e94560; font-weight: bold;")
         font_row.addWidget(self.font_size_label)
-        display_card.layout().addLayout(font_row)
+        display_layout.addLayout(font_row)
         layout.addWidget(display_card)
 
         model_card = self._create_setting_card("🤖 AI 모델")
+        model_layout = self._card_layout(model_card)
         self.model_combo = QComboBox()
         self.model_combo.addItems(AppConfig.AVAILABLE_MODELS.keys())
         self.model_combo.setCurrentText(self.model_name)
         self.model_combo.currentTextChanged.connect(lambda t: setattr(self, "model_name", t))
-        model_card.layout().addWidget(self.model_combo)
+        model_layout.addWidget(self.model_combo)
 
         model_btn_row = QHBoxLayout()
         reload_model_btn = QPushButton("🔄 모델 즉시 변경")
@@ -300,17 +331,18 @@ class MainWindowUIBuilderMixin:
         download_all_btn.clicked.connect(self._download_all_models)
         model_btn_row.addWidget(download_all_btn)
         model_btn_row.addStretch()
-        model_card.layout().addLayout(model_btn_row)
+        model_layout.addLayout(model_btn_row)
 
         self.model_status_label = QLabel("")
         self.model_status_label.setStyleSheet("color: #888; font-size: 12px;")
         self._update_model_status()
-        model_card.layout().addWidget(self.model_status_label)
+        model_layout.addWidget(self.model_status_label)
 
-        model_card.layout().addWidget(QLabel("⚠️ 모델 변경 시 기존 인덱스가 초기화됩니다"))
+        model_layout.addWidget(QLabel("⚠️ 모델 변경 시 기존 인덱스가 초기화됩니다"))
         layout.addWidget(model_card)
 
         data_card = self._create_setting_card("🗂️ 데이터 관리")
+        data_layout = self._card_layout(data_card)
         btn_row = QHBoxLayout()
         clear_cache_btn = QPushButton("🗑️ 캐시 삭제")
         clear_cache_btn.setStyleSheet("background: #dc2626;")
@@ -324,17 +356,17 @@ class MainWindowUIBuilderMixin:
         diag_btn.clicked.connect(self._export_diagnostics)
         btn_row.addWidget(diag_btn)
         btn_row.addStretch()
-        data_card.layout().addLayout(btn_row)
+        data_layout.addLayout(btn_row)
 
         self.cache_size_label = QLabel("")
         self.cache_size_label.setStyleSheet("color: #888; font-size: 12px;")
         self._update_cache_size_display()
-        data_card.layout().addWidget(self.cache_size_label)
+        data_layout.addWidget(self.cache_size_label)
 
         self.internal_state_label = QLabel("")
         self.internal_state_label.setStyleSheet("color: #888; font-size: 11px;")
         self.internal_state_label.setWordWrap(True)
-        data_card.layout().addWidget(self.internal_state_label)
+        data_layout.addWidget(self.internal_state_label)
         layout.addWidget(data_card)
 
         layout.addStretch()
@@ -342,6 +374,7 @@ class MainWindowUIBuilderMixin:
 
     def _create_setting_card(self, title: str) -> QFrame:
         """설정 카드 프레임 생성"""
+        self = _as_window(self)
         card = QFrame()
         card.setObjectName("card")
         layout = QVBoxLayout(card)

@@ -1,4 +1,4 @@
-﻿from regfinder import runtime
+from regfinder import runtime
 
 
 def test_get_app_directory_uses_entry_script(monkeypatch, tmp_path):

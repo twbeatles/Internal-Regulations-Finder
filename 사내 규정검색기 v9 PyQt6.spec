@@ -14,6 +14,7 @@
     앱 설정 탭의 `🧰 진단 내보내기`는 빌드와 무관하지만, 배포 환경에서 문제 재현/분석을 위한 로그/설정/환경 요약 zip을 생성합니다.
     모델 다운로드는 스크립트 실행 시 subprocess 경로를 사용하며,
     frozen(onefile) 실행에서는 in-process 경로로 폴백됩니다.
+    `pyrightconfig.json`, `.editorconfig`, `.gitattributes` 같은 개발용 품질 설정 파일은 번들 대상이 아닙니다.
 """
 
 import os
@@ -92,6 +93,7 @@ a = Analysis(
         'pandas',
         'IPython', 'jupyter', 'notebook',
         'pytest', 'black', 'pylint', 'mypy', 'sphinx',
+        'pyright',
         'tkinter', '_tkinter', 'Tkinter',
         'PySide6', 'PySide2', 'PyQt5',
         'tensorflow', 'keras',

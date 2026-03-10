@@ -24,10 +24,22 @@
 
 ### 테스트
 
+- `tests/test_bm25_state.py`
+- `tests/test_document_extractor_hwp.py`
+- `tests/test_document_extractor_pdf.py`
 - `tests/test_file_utils.py`
 - `tests/test_persistence.py`
+- `tests/test_qa_state_reset.py`
+- `tests/test_runtime_paths.py`
 - `tests/test_search_features.py`
 - `tests/test_worker_registry.py`
+
+### 저장소 품질 자산
+
+- `pyrightconfig.json`: `pythonVersion=3.14`, `typeCheckingMode=standard`
+- `.editorconfig`: UTF-8(no BOM), LF, final newline 기본 정책
+- `.gitattributes`: 추적 텍스트 파일 line ending 정규화
+- `.gitignore`: 포터블 실행 시 생성될 로컬 상태/내보내기 산출물 분리
 
 ---
 
@@ -51,7 +63,7 @@
 3. **완료**  
    - `WorkerRegistry` 도입
 4. **완료(기초 세트)**  
-   - 단위 테스트 4파일 추가
+   - 핵심 회귀 테스트 세트 확장
 5. **완료**  
    - `file_utils.py`에 `import os` 반영
 
@@ -85,9 +97,22 @@
 - `regfinder.main_window_mixins`
 - `regfinder.qa_system_mixins`
 
+추가 정렬 사항:
+
+- 개발 전용 품질 도구(`pytest`, `pyright`)는 번들 제외
+- `pyrightconfig.json`, `.editorconfig`, `.gitattributes`는 개발 자산이며 번들 대상 아님
+
 ---
 
-## 6) 권장 후속 작업
+## 6) 문서/정합성 기준
+
+- `README.md`, `claude.md`, `gemini.md`, `docs/*.md`는 현재 코드 구조와 검증 명령을 기준으로 유지
+- 기본 검증 게이트는 `pyright .`, `python tools/smoke_refactor.py`, `pytest -q`
+- 추적 텍스트 파일은 `UTF-8(no BOM)` 기준 유지
+
+---
+
+## 7) 권장 후속 작업
 
 1. E2E UI 테스트(Playwright/PyQt 자동화) 추가
 2. 검색/인덱싱 성능 벤치마크 스크립트 추가

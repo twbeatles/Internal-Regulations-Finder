@@ -67,7 +67,7 @@ class ModelDownloadThread(BaseWorkerThread):
     progress = pyqtSignal(int, str)
     finished = pyqtSignal(object)
     
-    def __init__(self, selected_models: List[Tuple[str, str]] = None):
+    def __init__(self, selected_models: Optional[List[Tuple[str, str]]] = None):
         super().__init__("DOWNLOAD")
         # 선택된 모델 리스트, 없으면 전체
         self.models = selected_models or list(AppConfig.AVAILABLE_MODELS.items())

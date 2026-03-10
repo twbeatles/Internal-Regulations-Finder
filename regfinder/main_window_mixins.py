@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime
+from typing import TYPE_CHECKING, Any, cast
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
@@ -26,14 +27,23 @@ from .app_types import AppConfig, TaskResult
 from .file_utils import FileUtils
 from .runtime import get_data_directory, get_models_directory
 
+if TYPE_CHECKING:
+    from .main_window import MainWindow
+
+
+def _as_window(instance: object) -> MainWindow:
+    return cast("MainWindow", instance)
+
 
 class MainWindowConfigMixin:
-    def _on_font_size_changed(self, value: int):
+    def _on_font_size_changed(self, value: int) -> None:
+        self = _as_window(self)
         self.font_size = value
         self.font_size_label.setText(f"{value}pt")
         self._save_config()
 
-    def _load_config(self):
+    def _load_config(self) -> None:
+        self = _as_window(self)
         cfg = self.config_manager.load()
         self.last_folder = cfg.get("folder", "")
         self.model_name = cfg.get("model", AppConfig.DEFAULT_MODEL)
@@ -48,7 +58,8 @@ class MainWindowConfigMixin:
                 if isinstance(folder, str) and folder:
                     self.recents.add(folder)
 
-    def _reset_to_defaults(self):
+    def _reset_to_defaults(self) -> None:
+        self = _as_window(self)
         self.last_folder = ""
         self.model_name = AppConfig.DEFAULT_MODEL
         self.font_size = AppConfig.DEFAULT_FONT_SIZE
@@ -57,7 +68,8 @@ class MainWindowConfigMixin:
         self.sort_by = "score_desc"
         self.search_filters = {"extension": "", "filename": "", "path": ""}
 
-    def _save_config(self):
+    def _save_config(self) -> None:
+        self = _as_window(self)
         cfg = {
             "folder": self.last_folder,
             "recent_folders": self.recents.get(),
@@ -70,7 +82,8 @@ class MainWindowConfigMixin:
         }
         self.config_manager.save(cfg)
 
-    def _gather_search_filters(self) -> dict:
+    def _gather_search_filters(self) -> dict[str, str]:
+        self = _as_window(self)
         return {
             "extension": self.ext_filter_combo.currentData() if hasattr(self, "ext_filter_combo") else "",
             "filename": self.filename_filter_input.text().strip() if hasattr(self, "filename_filter_input") else "",
@@ -80,6 +93,7 @@ class MainWindowConfigMixin:
 
 class MainWindowInsightsMixin:
     def _create_bookmarks_view(self) -> QWidget:
+        self = _as_window(self)
         view = QWidget()
         layout = QVBoxLayout(view)
         layout.setContentsMargins(20, 20, 20, 20)
@@ -112,8 +126,10 @@ class MainWindowInsightsMixin:
         self.bookmark_table = QTableWidget()
         self.bookmark_table.setColumnCount(4)
         self.bookmark_table.setHorizontalHeaderLabels(["시간", "검색어", "파일", "점수"])
-        self.bookmark_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self.bookmark_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        header = self.bookmark_table.horizontalHeader()
+        if header is not None:
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+            header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         self.bookmark_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.bookmark_table.setSortingEnabled(True)
         self.bookmark_table.doubleClicked.connect(self._open_selected_bookmark_file)
@@ -123,6 +139,7 @@ class MainWindowInsightsMixin:
         return view
 
     def _create_diagnostics_view(self) -> QWidget:
+        self = _as_window(self)
         view = QWidget()
         layout = QVBoxLayout(view)
         layout.setContentsMargins(20, 20, 20, 20)
@@ -152,13 +169,15 @@ class MainWindowInsightsMixin:
         layout.addWidget(self.diagnostics_text, 1)
         return view
 
-    def _add_bookmark(self, item: dict):
+    def _add_bookmark(self, item: dict[str, Any]) -> None:
+        self = _as_window(self)
         query = getattr(self, "last_search_query", self.search_input.text().strip())
         self.bookmarks.add(query, item)
         self._refresh_bookmarks_table()
         self._show_status("⭐ 북마크 저장 완료", "#10b981", 1500)
 
-    def _refresh_bookmarks_table(self):
+    def _refresh_bookmarks_table(self) -> None:
+        self = _as_window(self)
         if not hasattr(self, "bookmark_table"):
             return
         rows = list(self.bookmarks.items)
@@ -184,7 +203,8 @@ class MainWindowInsightsMixin:
         if hasattr(self, "bookmark_count_label"):
             self.bookmark_count_label.setText(f"⭐ 북마크 {len(rows)}개")
 
-    def _open_selected_bookmark_file(self):
+    def _open_selected_bookmark_file(self) -> None:
+        self = _as_window(self)
         row = self.bookmark_table.currentRow() if hasattr(self, "bookmark_table") else -1
         if row < 0:
             return
@@ -195,7 +215,8 @@ class MainWindowInsightsMixin:
         if file_path and os.path.exists(file_path):
             FileUtils.open_file(file_path)
 
-    def _remove_selected_bookmark(self):
+    def _remove_selected_bookmark(self) -> None:
+        self = _as_window(self)
         if not hasattr(self, "bookmark_table"):
             return
         row = self.bookmark_table.currentRow()
@@ -210,14 +231,16 @@ class MainWindowInsightsMixin:
             self._refresh_bookmarks_table()
             self._refresh_diagnostics_view()
 
-    def _clear_bookmarks(self):
+    def _clear_bookmarks(self) -> None:
+        self = _as_window(self)
         if QMessageBox.question(self, "확인", "북마크를 모두 삭제하시겠습니까?") == QMessageBox.StandardButton.Yes:
             self.bookmarks.clear()
             self._refresh_bookmarks_table()
             self._refresh_diagnostics_view()
             self._show_status("✅ 북마크 삭제됨", "#10b981", 2000)
 
-    def _export_bookmarks(self):
+    def _export_bookmarks(self) -> None:
+        self = _as_window(self)
         if not self.bookmarks.items:
             QMessageBox.information(self, "알림", "내보낼 북마크가 없습니다.")
             return
@@ -256,14 +279,16 @@ class MainWindowInsightsMixin:
         except Exception as e:
             QMessageBox.critical(self, "오류", f"북마크 내보내기 실패: {e}")
 
-    def _clear_recent_folders(self):
+    def _clear_recent_folders(self) -> None:
+        self = _as_window(self)
         if QMessageBox.question(self, "확인", "최근 폴더 목록을 비우시겠습니까?") == QMessageBox.StandardButton.Yes:
             self.recents.clear()
             self.recent_btn.setEnabled(False)
             self._save_config()
             self._show_status("✅ 최근 폴더 삭제됨", "#10b981", 2000)
 
-    def _refresh_diagnostics_view(self):
+    def _refresh_diagnostics_view(self) -> None:
+        self = _as_window(self)
         if not hasattr(self, "diagnostics_text"):
             return
         diag = self.qa.collect_diagnostics()
@@ -313,11 +338,13 @@ class MainWindowInsightsMixin:
         )
         self.diagnostics_text.setPlainText(text)
 
-    def _update_cache_size_display(self):
+    def _update_cache_size_display(self) -> None:
+        self = _as_window(self)
         total_size = self.qa.get_cache_usage_bytes()
         self.cache_size_label.setText(f"💾 캐시 사용량: {FileUtils.format_size(total_size)}")
 
-    def _update_internal_state_display(self):
+    def _update_internal_state_display(self) -> None:
+        self = _as_window(self)
         if not hasattr(self, "internal_state_label"):
             return
 
@@ -372,7 +399,14 @@ class MainWindowInsightsMixin:
         self.internal_state_label.setText(text)
         self.internal_state_label.setToolTip(text)
 
-    def _show_task_error(self, title: str, result: TaskResult, *, icon=QMessageBox.Icon.Critical):
+    def _show_task_error(
+        self,
+        title: str,
+        result: TaskResult,
+        *,
+        icon: QMessageBox.Icon = QMessageBox.Icon.Critical,
+    ) -> None:
+        self = _as_window(self)
         guides = {
             "MODEL_LOAD_FAIL": "가이드: 네트워크/모델 캐시/패키지 설치(torch, langchain_huggingface)를 확인하세요.",
             "MODEL_NOT_LOADED": "가이드: 먼저 모델 로드를 완료한 뒤 다시 시도하세요.",

@@ -1,6 +1,6 @@
 # 📚 사내 규정 검색기 v9.3
 
-> 로컬 AI 기반 사내 규정 문서 검색 프로그램  
+> 로컬 AI 기반 사내 규정 문서 검색 프로그램
 > PyQt6 GUI | 하이브리드 검색(Vector + BM25) | 증분 인덱싱 | 오프라인 모델 지원
 
 ---
@@ -35,6 +35,17 @@ pip install PyQt6 torch langchain langchain-huggingface langchain-community fais
 python "사내 규정검색기 v9 PyQt6.py"
 ```
 
+기존 한국어 엔트리 파일은 호환 래퍼이며 내부적으로 `regfinder.app_main.main()`을 호출합니다.
+
+---
+
+## 🧪 개발 품질 기준
+
+- `pyrightconfig.json`을 저장소 기준 Pylance/Pyright 설정으로 사용
+- 기준 타입 체크 레벨: `pythonVersion = 3.14`, `typeCheckingMode = standard`
+- `.editorconfig` + `.gitattributes`로 추적 텍스트 파일의 `UTF-8(no BOM)`, `LF`, final newline 정책을 고정
+- PyInstaller spec은 `pytest`, `pyright` 같은 개발 전용 도구를 번들에서 제외
+
 ---
 
 ## 🧱 코드 구조
@@ -63,10 +74,15 @@ python "사내 규정검색기 v9 PyQt6.py"
 ## ✅ 검증
 
 ```bash
+pyright .
 python tools/smoke_refactor.py
+python -m py_compile "사내 규정검색기 v9 PyQt6.spec"
 python -m unittest discover -s tests -v
 pytest -q
 ```
+
+- 기준선: `pyright .` 0 errors
+- 추적 텍스트 파일은 `UTF-8(no BOM)` 기준 유지
 
 ---
 

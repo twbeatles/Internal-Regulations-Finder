@@ -17,6 +17,8 @@
     `sentence_transformers` import 경로는 `transformers -> PIL.Image` 와
     `sentence_transformers -> sklearn.metrics` 체인을 타므로,
     경량화 시 `Pillow` / `scikit-learn` 제외 여부를 주의해야 합니다.
+    설정창 모델 다운로드 상태 표시는 `models--<org>--<name>/blobs,snapshots`
+    Hugging Face 캐시 구조를 기준으로 판별합니다.
     `pyrightconfig.json`, `.editorconfig`, `.gitattributes` 같은 개발용 품질 설정 파일은 번들 대상이 아닙니다.
 """
 

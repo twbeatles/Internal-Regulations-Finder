@@ -35,6 +35,7 @@
 - `tests/test_runtime_logging.py`
 - `tests/test_runtime_paths.py`
 - `tests/test_search_features.py`
+- `tests/test_ui_style.py`
 - `tests/test_worker_registry.py`
 
 ### 저장소 품질 자산
@@ -119,6 +120,9 @@
    - `Pillow` → `scikit-learn` → `sentence_transformers` 순으로 import 검증
 4. 빈 상태 UI 스타일 회귀 수정  
    - 전역 `QWidget` 배경 적용을 화면 컨테이너로 한정
+5. 모델 선택 UX 개선  
+   - 모델 로드 완료 직후 검색 입력 활성화
+   - 다운로드 완료 모델 우선 정렬/선택 및 Hugging Face 캐시 구조 기반 상태 판별
 
 ---
 

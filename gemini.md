@@ -10,6 +10,7 @@
 - frozen(onefile) 모델 다운로드는 subprocess 대신 in-process 경로 사용
 - 오프라인 임베딩 런타임은 `Pillow` / `scikit-learn` / `sentence_transformers` 사전검증 추가
 - 전역 QSS는 화면 컨테이너 단위 배경 적용으로 조정되어 라벨 배경 덮어쓰기 회귀를 방지
+- 모델 다운로드 상태는 Hugging Face 로컬 캐시(`models--.../blobs`, `snapshots`) 기준으로 판별
 
 ## 현재 사용자 기능
 
@@ -20,6 +21,8 @@
 - 진단 탭(인덱스 상태 + 검색 로그 요약)
 - 오류 코드별 가이드 메시지
 - 다운로드 실패 시 `op_id`와 실제 import 실패 패키지명을 함께 노출
+- 모델 로드 성공 직후 검색창 입력 가능
+- 설정창 모델 목록은 다운로드 완료 모델을 상단 우선 정렬
 
 ## 운영 규칙
 

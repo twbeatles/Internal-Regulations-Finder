@@ -17,6 +17,8 @@
 - OCR 인터페이스 확장 포인트 제공(기본 엔진 미포함)
 - 오프라인 모델 선택 다운로드(취소 지원)
 - EXE(onefile) 환경 오프라인 모델 다운로드 경로 지원
+- 모델 로드 완료 직후 검색 입력창 즉시 활성화
+- 설정창에서 다운로드 완료 모델 우선 정렬/선택 및 상태 표시
 - 진단 탭(인덱스 상태 + 검색 로그 요약) 및 진단 ZIP 내보내기
 - 오류 코드별 가이드 메시지 + 상세 디버그(`TaskResult.debug`)
 - 다운로드/모델 로드 전 `Pillow` / `scikit-learn` / `sentence_transformers` 런타임 사전검증
@@ -103,6 +105,7 @@ pyinstaller "사내 규정검색기 v9 PyQt6.spec"
 
 - onefile EXE는 `sys.executable -c` 서브프로세스 대신 in-process 다운로드 경로를 사용
 - `transformers`가 `PIL.Image`를 모듈 초기화 시 참조하므로, 경량화 시 `Pillow` 제외 금지
+- 모델 다운로드 완료 여부는 `models/models--<org>--<name>/{blobs,snapshots}` 캐시 구조 기준으로 판별
 - 현재 onefile 크기는 `torch` / `faiss` / `PyQt6` 포함으로 인해 약 300MB 수준
 
 ---

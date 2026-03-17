@@ -322,18 +322,26 @@ class MainWindowUIBuilderMixin:
         model_card = self._create_setting_card("🤖 AI 모델")
         model_layout = self._card_layout(model_card)
         self.model_combo = QComboBox()
-        self.model_combo.addItems(AppConfig.AVAILABLE_MODELS.keys())
-        self.model_combo.setCurrentText(self.model_name)
-        self.model_combo.currentTextChanged.connect(lambda t: setattr(self, "model_name", t))
+        self.model_combo.currentIndexChanged.connect(lambda *_: self._on_model_selection_changed())
         model_layout.addWidget(self.model_combo)
+
+        self.model_selection_label = QLabel("")
+        self.model_selection_label.setStyleSheet("color: #9fb3c8; font-size: 12px;")
+        self.model_selection_label.setWordWrap(True)
+        model_layout.addWidget(self.model_selection_label)
 
         model_btn_row = QHBoxLayout()
         reload_model_btn = QPushButton("🔄 모델 즉시 변경")
         reload_model_btn.clicked.connect(self._reload_model)
         model_btn_row.addWidget(reload_model_btn)
 
+        self.prefer_downloaded_btn = QPushButton("✅ 다운로드 모델 우선 선택")
+        self.prefer_downloaded_btn.setToolTip("다운로드 완료된 모델 중 첫 번째를 현재 선택으로 맞춥니다")
+        self.prefer_downloaded_btn.clicked.connect(lambda *_: self._select_preferred_downloaded_model())
+        model_btn_row.addWidget(self.prefer_downloaded_btn)
+
         download_all_btn = QPushButton("📥 오프라인 모델 다운로드")
-        download_all_btn.setToolTip("모든 모델을 사전 다운로드하여 오프라인에서 사용")
+        download_all_btn.setToolTip("선택한 모델을 사전 다운로드하여 오프라인에서 사용")
         download_all_btn.clicked.connect(self._download_all_models)
         model_btn_row.addWidget(download_all_btn)
         model_btn_row.addStretch()
@@ -341,10 +349,12 @@ class MainWindowUIBuilderMixin:
 
         self.model_status_label = QLabel("")
         self.model_status_label.setStyleSheet("color: #888; font-size: 12px;")
+        self.model_status_label.setWordWrap(True)
+        self._refresh_model_selector()
         self._update_model_status()
         model_layout.addWidget(self.model_status_label)
 
-        model_layout.addWidget(QLabel("⚠️ 모델 변경 시 기존 인덱스가 초기화됩니다"))
+        model_layout.addWidget(QLabel("⚠️ 모델 변경 시 기존 인덱스가 초기화됩니다. 다운로드 완료 모델은 목록 상단에 표시됩니다."))
         layout.addWidget(model_card)
 
         data_card = self._create_setting_card("🗂️ 데이터 관리")

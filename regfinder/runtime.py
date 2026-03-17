@@ -123,6 +123,42 @@ def get_models_directory() -> str:
     return os.path.join(get_data_directory(), "models")
 
 
+def get_model_cache_dir_name(model_id: str) -> str:
+    normalized = str(model_id or "").strip().strip("/")
+    if not normalized:
+        return ""
+    return f"models--{normalized.replace('/', '--')}"
+
+
+def get_model_cache_path(model_id: str, models_dir: Optional[str] = None) -> str:
+    base_dir = models_dir or get_models_directory()
+    cache_dir_name = get_model_cache_dir_name(model_id)
+    return os.path.join(base_dir, cache_dir_name) if cache_dir_name else base_dir
+
+
+def is_model_downloaded(model_id: str, models_dir: Optional[str] = None) -> bool:
+    model_cache_path = get_model_cache_path(model_id, models_dir=models_dir)
+    if not os.path.isdir(model_cache_path):
+        return False
+
+    blobs_dir = os.path.join(model_cache_path, "blobs")
+    snapshots_dir = os.path.join(model_cache_path, "snapshots")
+    if not os.path.isdir(blobs_dir) or not os.path.isdir(snapshots_dir):
+        return False
+
+    try:
+        has_blob = any(entry.is_file() for entry in os.scandir(blobs_dir))
+    except OSError:
+        has_blob = False
+
+    try:
+        has_snapshot = any(entry.is_dir() for entry in os.scandir(snapshots_dir))
+    except OSError:
+        has_snapshot = False
+
+    return has_blob and has_snapshot
+
+
 def setup_logger() -> logging.Logger:
     """로깅 환경 설정 (자동 순환 포함)"""
     from logging.handlers import RotatingFileHandler

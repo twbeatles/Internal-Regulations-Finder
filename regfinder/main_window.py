@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
 from .app_types import AppConfig, FileStatus, TaskResult
 from .file_utils import FileUtils
 from .qa_system import RegulationQASystem
-from .runtime import get_models_directory, logger
+from .runtime import get_model_cache_path, get_models_directory, is_model_downloaded, logger
 from .persistence import BookmarkStore, ConfigManager, RecentFoldersStore, SearchLogStore
 from .main_window_ui_mixin import MainWindowUIBuilderMixin
 from .main_window_mixins import MainWindowConfigMixin, MainWindowInsightsMixin
@@ -65,6 +65,10 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         self._update_internal_state_display()
         self._refresh_diagnostics_view()
         QTimer.singleShot(100, self._load_model)
+
+    def _set_search_controls_enabled(self, enabled: bool) -> None:
+        self.search_input.setEnabled(enabled)
+        self.search_btn.setEnabled(enabled)
     
     def _load_model(self):
         if self.workers.is_running("model"):
@@ -83,6 +87,7 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             self.status_label.setText(f"✅ {result.message}")
             self.status_label.setStyleSheet("color: #10b981;")
             self.folder_btn.setEnabled(True)
+            self._set_search_controls_enabled(True)
             if any(os.path.isdir(p) for p in self.recents.get()):
                 self.recent_btn.setEnabled(True)
             self._update_internal_state_display()
@@ -90,6 +95,7 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         else:
             self.status_label.setText(f"❌ {result.message}")
             self.status_label.setStyleSheet("color: #ef4444;")
+            self._set_search_controls_enabled(False)
             self._update_internal_state_display()
             self._refresh_diagnostics_view()
             self._show_task_error("모델 로드 오류", result)
@@ -155,8 +161,7 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
                 self.qa.bm25.clear()
             
             # UI 초기화
-            self.search_input.setEnabled(False)
-            self.search_btn.setEnabled(False)
+            self._set_search_controls_enabled(False)
             self.refresh_btn.setEnabled(False)
             self._show_empty_state("welcome")
             self.file_table.setRowCount(0)
@@ -230,8 +235,7 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             self.last_folder = folder
             self.recents.add(folder)
             self._save_config()
-            self.search_input.setEnabled(True)
-            self.search_btn.setEnabled(True)
+            self._set_search_controls_enabled(True)
             self.refresh_btn.setEnabled(True)
             self.recent_btn.setEnabled(True)
             self._update_file_table()
@@ -332,8 +336,7 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         self.search_filters = filters
         self._save_config()
         
-        self.search_btn.setEnabled(False)
-        self.search_input.setEnabled(False)  # 검색 중 입력 비활성화
+        self._set_search_controls_enabled(False)
         self._clear_results()
         loading = QLabel("🔍 검색 중...")
         loading.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -355,8 +358,7 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         search_time = time.time() - getattr(self, '_search_start_time', time.time())
         elapsed_ms = int(search_time * 1000)
         
-        self.search_btn.setEnabled(True)
-        self.search_input.setEnabled(True)  # 검색 완료 후 입력 활성화
+        self._set_search_controls_enabled(True)
         self._clear_results()
         self.search_logs.add(
             query=query,
@@ -600,27 +602,130 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             self._refresh_diagnostics_view()
             self._show_status("✅ 히스토리 삭제됨", "#10b981", 3000)
     
-    def _update_model_status(self):
-        """모델 다운로드 상태 업데이트"""
+    def _get_model_download_states(self) -> dict[str, dict[str, object]]:
         cache_dir = get_models_directory()
-        if os.path.exists(cache_dir):
-            # 캐시 디렉토리의 모델 폴더 수 확인
-            model_dirs = [d for d in os.listdir(cache_dir) if os.path.isdir(os.path.join(cache_dir, d))]
-            total_models = len(AppConfig.AVAILABLE_MODELS)
-            # 모델 캐시 크기 계산
-            total_size = 0
-            for dirpath, dirnames, filenames in os.walk(cache_dir):
-                for f in filenames:
-                    try:
-                        total_size += os.path.getsize(os.path.join(dirpath, f))
-                    except OSError as e:
-                        logger.debug(f"모델 크기 계산 실패(무시): {dirpath}\\{f} - {e}")
-            msg = f"📦 다운로드된 모델: {FileUtils.format_size(total_size)}"
-            self.model_status_label.setText(msg)
-            self.model_status_label.setToolTip(f"{msg}\n경로: {cache_dir}")
+        states: dict[str, dict[str, object]] = {}
+        for name, model_id in AppConfig.AVAILABLE_MODELS.items():
+            downloaded = is_model_downloaded(model_id, models_dir=cache_dir)
+            model_cache_path = get_model_cache_path(model_id, models_dir=cache_dir)
+            size_bytes = 0
+            if downloaded and os.path.isdir(model_cache_path):
+                for dirpath, _, filenames in os.walk(model_cache_path):
+                    for filename in filenames:
+                        try:
+                            size_bytes += os.path.getsize(os.path.join(dirpath, filename))
+                        except OSError as e:
+                            logger.debug(f"모델 크기 계산 실패(무시): {dirpath}\\{filename} - {e}")
+            states[name] = {
+                "model_id": model_id,
+                "downloaded": downloaded,
+                "size_bytes": size_bytes,
+                "cache_path": model_cache_path,
+            }
+        return states
+
+    def _set_selected_model(self, model_name: str, *, save: bool = False) -> bool:
+        if model_name not in AppConfig.AVAILABLE_MODELS:
+            return False
+
+        self.model_name = model_name
+        if hasattr(self, "model_combo"):
+            index = self.model_combo.findData(model_name)
+            if index >= 0 and self.model_combo.currentIndex() != index:
+                self.model_combo.blockSignals(True)
+                self.model_combo.setCurrentIndex(index)
+                self.model_combo.blockSignals(False)
+        if hasattr(self, "model_combo"):
+            self._update_model_status()
+        if save:
+            self._save_config()
+        return True
+
+    def _select_preferred_downloaded_model(self, preferred_names: list[str] | None = None) -> bool:
+        states = self._get_model_download_states()
+        candidate_names = [name for name in (preferred_names or []) if bool(states.get(name, {}).get("downloaded"))]
+        if not candidate_names:
+            candidate_names = [
+                name
+                for name in AppConfig.AVAILABLE_MODELS
+                if bool(states.get(name, {}).get("downloaded"))
+            ]
+        if not candidate_names:
+            return False
+        return self._set_selected_model(candidate_names[0], save=True)
+
+    def _refresh_model_selector(self) -> None:
+        if not hasattr(self, "model_combo"):
+            return
+
+        states = self._get_model_download_states()
+        ordered_names = sorted(
+            AppConfig.AVAILABLE_MODELS.keys(),
+            key=lambda name: (
+                not bool(states.get(name, {}).get("downloaded")),
+                list(AppConfig.AVAILABLE_MODELS.keys()).index(name),
+            ),
+        )
+
+        selected_name = self.model_name if self.model_name in AppConfig.AVAILABLE_MODELS else AppConfig.DEFAULT_MODEL
+        self.model_combo.blockSignals(True)
+        self.model_combo.clear()
+        for name in ordered_names:
+            state = states.get(name, {})
+            downloaded = bool(state.get("downloaded"))
+            marker = "✅" if downloaded else "☁️"
+            label = f"{marker} {name}"
+            if downloaded and int(state.get("size_bytes", 0) or 0) > 0:
+                label += f" ({FileUtils.format_size(int(state.get('size_bytes', 0) or 0))})"
+            self.model_combo.addItem(label, name)
+        target_index = self.model_combo.findData(selected_name)
+        if target_index < 0:
+            target_index = 0
+        self.model_combo.setCurrentIndex(target_index)
+        self.model_combo.blockSignals(False)
+        current_name = self.model_combo.currentData()
+        if isinstance(current_name, str) and current_name in AppConfig.AVAILABLE_MODELS:
+            self.model_name = current_name
+        self._update_model_status()
+
+    def _on_model_selection_changed(self) -> None:
+        selected_name = self.model_combo.currentData() if hasattr(self, "model_combo") else None
+        if isinstance(selected_name, str) and selected_name in AppConfig.AVAILABLE_MODELS:
+            self.model_name = selected_name
+            self._update_model_status()
+            self._save_config()
+
+    def _update_model_status(self):
+        """모델 다운로드 상태/선택 상태 업데이트"""
+        cache_dir = get_models_directory()
+        states = self._get_model_download_states()
+        downloaded_names = [name for name, state in states.items() if bool(state.get("downloaded"))]
+        total_size = sum(int(state.get("size_bytes", 0) or 0) for state in states.values())
+        total_models = len(AppConfig.AVAILABLE_MODELS)
+
+        if downloaded_names:
+            msg = f"📦 다운로드 완료 {len(downloaded_names)}/{total_models} | {FileUtils.format_size(total_size)}"
         else:
-            self.model_status_label.setText("📦 다운로드된 모델 없음 (온라인 필요)")
-            self.model_status_label.setToolTip(f"경로: {cache_dir}")
+            msg = "📦 다운로드된 모델 없음 (온라인 필요)"
+        self.model_status_label.setText(msg)
+
+        tooltip_lines = [f"경로: {cache_dir}", ""]
+        for name in AppConfig.AVAILABLE_MODELS:
+            state = states.get(name, {})
+            downloaded = bool(state.get("downloaded"))
+            size_bytes = int(state.get("size_bytes", 0) or 0)
+            status = "다운로드 완료" if downloaded else "온라인 필요"
+            size_text = f" ({FileUtils.format_size(size_bytes)})" if size_bytes > 0 else ""
+            tooltip_lines.append(f"- {name}: {status}{size_text}")
+        self.model_status_label.setToolTip("\n".join(tooltip_lines))
+
+        if hasattr(self, "model_selection_label"):
+            current_state = states.get(self.model_name, {})
+            current_status = "다운로드 완료" if bool(current_state.get("downloaded")) else "온라인 필요"
+            self.model_selection_label.setText(f"현재 선택: {self.model_name} | 상태: {current_status}")
+
+        if hasattr(self, "prefer_downloaded_btn"):
+            self.prefer_downloaded_btn.setEnabled(bool(downloaded_names))
     
     def _download_all_models(self):
         """선택된 모델 다운로드 시작"""
@@ -638,17 +743,24 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             info_label = QLabel(
                 "다운로드할 모델을 선택하세요.\n"
                 "각 모델은 약 400MB~1GB입니다.\n"
-                "인터넷 연결이 필요하며, 완료 후 오프라인에서 사용할 수 있습니다."
+                "인터넷 연결이 필요하며, 완료 후 오프라인에서 사용할 수 있습니다.\n"
+                "이미 다운로드된 모델은 체크 해제된 상태로 표시됩니다."
             )
             info_label.setStyleSheet("color: #888; margin-bottom: 10px;")
             dialog_layout.addWidget(info_label)
             
             # 체크박스 생성
             checkboxes = {}
+            model_states = self._get_model_download_states()
             for name, model_id in AppConfig.AVAILABLE_MODELS.items():
-                checkbox = QCheckBox(name)
-                checkbox.setChecked(True)  # 기본 선택
-                checkbox.setToolTip(f"모델 ID: {model_id}")
+                state = model_states.get(name, {})
+                downloaded = bool(state.get("downloaded"))
+                size_bytes = int(state.get("size_bytes", 0) or 0)
+                status_text = "다운로드 완료" if downloaded else "온라인 필요"
+                size_text = f" ({FileUtils.format_size(size_bytes)})" if size_bytes > 0 else ""
+                checkbox = QCheckBox(f"{name} [{status_text}{size_text}]")
+                checkbox.setChecked(not downloaded)
+                checkbox.setToolTip(f"모델 ID: {model_id}\n상태: {status_text}\n경로: {state.get('cache_path', '')}")
                 checkboxes[name] = (checkbox, model_id)
                 dialog_layout.addWidget(checkbox)
             
@@ -714,10 +826,15 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         self.progress_dialog.deleteLater()
         
         self._update_model_status()
+        self._refresh_model_selector()
         self._update_internal_state_display()
         self._refresh_diagnostics_view()
         
         if result.success:
+            downloaded_names = list((result.data or {}).get("downloaded", []) or [])
+            preferred_selected = self._select_preferred_downloaded_model(downloaded_names)
+            if preferred_selected:
+                self._show_status("✅ 다운로드된 모델을 설정창 기본 선택으로 반영했습니다", "#10b981", 4000)
             QMessageBox.information(self, "완료", f"✅ {result.message}")
         else:
             msg = f"❌ {result.message}"

@@ -46,6 +46,8 @@ This file tracks architecture and maintenance rules after modularization and fol
 - Error dialogs include error-code-specific recovery guide text.
 - Empty-state cards use dedicated object names/styles to avoid label background bleed-through.
 - Frozen onefile model download uses in-process fallback and validates `Pillow`, `scikit-learn`, `sentence_transformers` before loading embeddings.
+- Search input becomes enabled immediately after successful model load, even before folder indexing.
+- Settings model selector surfaces download status and prioritizes downloaded models using Hugging Face cache directory detection.
 
 ---
 

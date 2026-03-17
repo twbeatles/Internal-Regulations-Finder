@@ -30,6 +30,9 @@ htmlcov/
 # IDE/OS
 .idea/
 .vscode/
+!.vscode/
+.vscode/*
+!.vscode/settings.json
 *.swp
 *.swo
 *.tmp

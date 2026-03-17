@@ -19,7 +19,8 @@
     경량화 시 `Pillow` / `scikit-learn` 제외 여부를 주의해야 합니다.
     설정창 모델 다운로드 상태 표시는 `models--<org>--<name>/blobs,snapshots`
     Hugging Face 캐시 구조를 기준으로 판별합니다.
-    `pyrightconfig.json`, `.editorconfig`, `.gitattributes` 같은 개발용 품질 설정 파일은 번들 대상이 아닙니다.
+    `pyrightconfig.json`, `.editorconfig`, `.gitattributes`, `.vscode/settings.json`
+    같은 개발용 품질 설정 파일과 `tests/test_repo_text_encoding.py` 같은 회귀 테스트는 번들 대상이 아닙니다.
 """
 
 import os

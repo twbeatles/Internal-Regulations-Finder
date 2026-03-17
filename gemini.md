@@ -11,6 +11,8 @@
 - 오프라인 임베딩 런타임은 `Pillow` / `scikit-learn` / `sentence_transformers` 사전검증 추가
 - 전역 QSS는 화면 컨테이너 단위 배경 적용으로 조정되어 라벨 배경 덮어쓰기 회귀를 방지
 - 모델 다운로드 상태는 Hugging Face 로컬 캐시(`models--.../blobs`, `snapshots`) 기준으로 판별
+- 모델 다운로드 상태 접근은 `ModelDownloadState` 타입 계약으로 고정되어 Pylance 추론이 흔들리지 않음
+- `.vscode/settings.json`과 `tests/test_repo_text_encoding.py`로 UTF-8/워크스페이스 진단 재발을 방지
 
 ## 현재 사용자 기능
 
@@ -40,5 +42,5 @@ pyright .
 python tools/smoke_refactor.py
 python -m py_compile "사내 규정검색기 v9 PyQt6.spec"
 python -m unittest discover -s tests -v
-pytest -q
+python -m pytest -q
 ```

@@ -45,6 +45,8 @@
 - spec은 offline embeddings를 위해 `sentence-transformers` / `scikit-learn` / `pillow` 메타데이터를 포함
 - 정적 분석 기준은 `pyrightconfig.json`으로 저장소 루트에 고정
 - 텍스트 인코딩/줄바꿈 정책은 `.editorconfig` + `.gitattributes`로 고정
+- VSCode workspace 설정은 `.vscode/settings.json`으로 UTF-8/Pylance 범위를 고정
+- 모델 다운로드 상태 UI는 `ModelDownloadState` 타입 계약으로 강타입화
 
 ---
 
@@ -52,4 +54,6 @@
 
 - `pyright .` 기준 오류 0건 유지
 - 추적 텍스트 파일은 `UTF-8(no BOM)` 유지
+- `tests/test_repo_text_encoding.py`로 UTF-8 디코딩/replacement char 회귀 검증 유지
+- Windows PowerShell/Python 출력 모지바케는 실제 저장소 파일 손상과 분리해 판단
 - 런타임 로컬 상태 파일과 결과 내보내기 산출물은 `.gitignore`로 분리 관리

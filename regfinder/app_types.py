@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Any, Dict, List
+from typing import Any, Dict, List, TypeAlias, TypedDict
 
 class AppConfig:
     APP_NAME = "사내 규정 검색기"
@@ -55,6 +55,16 @@ class FileStatus(Enum):
     SUCCESS = "완료"
     FAILED = "실패"
     CACHED = "캐시"
+
+
+class ModelDownloadState(TypedDict):
+    model_id: str
+    downloaded: bool
+    size_bytes: int
+    cache_path: str
+
+
+ModelDownloadStateMap: TypeAlias = Dict[str, ModelDownloadState]
 
 
 @dataclass

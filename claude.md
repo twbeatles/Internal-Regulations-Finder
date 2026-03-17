@@ -48,6 +48,7 @@ This file tracks architecture and maintenance rules after modularization and fol
 - Frozen onefile model download uses in-process fallback and validates `Pillow`, `scikit-learn`, `sentence_transformers` before loading embeddings.
 - Search input becomes enabled immediately after successful model load, even before folder indexing.
 - Settings model selector surfaces download status and prioritizes downloaded models using Hugging Face cache directory detection.
+- Model download state access is strongly typed via `ModelDownloadState`, preventing Pylance drift in selector/status UI.
 
 ---
 
@@ -75,6 +76,8 @@ This file tracks architecture and maintenance rules after modularization and fol
 - `pyrightconfig.json`: repo-wide Pylance/Pyright baseline
 - `.editorconfig`: UTF-8, LF, whitespace policy
 - `.gitattributes`: tracked text file line-ending normalization
+- `.vscode/settings.json`: workspace UTF-8/Pylance/Python terminal defaults
+- `tests/test_repo_text_encoding.py`: tracked text-file UTF-8/replacement-char regression test
 
 ---
 
@@ -103,5 +106,6 @@ This file tracks architecture and maintenance rules after modularization and fol
 - `python tools/smoke_refactor.py`
 - `python -m py_compile "사내 규정검색기 v9 PyQt6.spec"`
 - `python -m unittest discover -s tests -v`
-- `pytest -q`
+- `python -m pytest -q`
 - tracked text files should remain `UTF-8` without BOM
+- Windows PowerShell/Python mojibake can be a display issue rather than committed file corruption

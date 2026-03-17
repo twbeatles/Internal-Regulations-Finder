@@ -6,8 +6,10 @@
 - [ ] `python tools/smoke_refactor.py` 통과
 - [ ] `python -m py_compile "사내 규정검색기 v9 PyQt6.spec"` 통과
 - [ ] `python -m unittest discover -s tests -v` 통과
-- [ ] `pytest -q` 통과
+- [ ] `python -m pytest -q` 통과
 - [ ] 추적 텍스트 파일 `UTF-8(no BOM)` / `LF` 유지 확인
+- [ ] `tests/test_repo_text_encoding.py`가 UTF-8 디코딩/replacement char 회귀를 함께 검증하는지 확인
+- [ ] Windows PowerShell/Python 출력 모지바케와 실제 UTF-8 파일 손상을 구분해 확인
 
 ## 1-1. 권장 검증 명령
 
@@ -16,7 +18,7 @@ pyright .
 python tools/smoke_refactor.py
 python -m py_compile "사내 규정검색기 v9 PyQt6.spec"
 python -m unittest discover -s tests -v
-pytest -q
+python -m pytest -q
 ```
 
 ## 2. App startup

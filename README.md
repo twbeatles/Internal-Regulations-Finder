@@ -48,6 +48,8 @@ python "사내 규정검색기 v9 PyQt6.py"
 - `pyrightconfig.json`을 저장소 기준 Pylance/Pyright 설정으로 사용
 - 기준 타입 체크 레벨: `pythonVersion = 3.14`, `typeCheckingMode = standard`
 - `.editorconfig` + `.gitattributes`로 추적 텍스트 파일의 `UTF-8(no BOM)`, `LF`, final newline 정책을 고정
+- `.vscode/settings.json`으로 VSCode의 workspace Pylance 범위와 Windows 터미널 UTF-8 Python 출력을 고정
+- `ModelDownloadState` 타입 계약과 `tests/test_repo_text_encoding.py` 회귀 테스트로 모델 상태 추론/인코딩 검증을 고정
 - PyInstaller spec은 `pytest`, `pyright` 같은 개발 전용 도구를 번들에서 제외
 - PyInstaller onefile 번들은 오프라인 모델 다운로드를 위해 `sentence_transformers`, `scikit-learn`, `Pillow` 메타데이터/런타임을 포함
 
@@ -83,11 +85,12 @@ pyright .
 python tools/smoke_refactor.py
 python -m py_compile "사내 규정검색기 v9 PyQt6.spec"
 python -m unittest discover -s tests -v
-pytest -q
+python -m pytest -q
 ```
 
 - 기준선: `pyright .` 0 errors
 - 추적 텍스트 파일은 `UTF-8(no BOM)` 기준 유지
+- Windows PowerShell/Python 출력에서 한글이나 이모지가 깨져 보여도, 실제 UTF-8 파일 손상과는 별개일 수 있음
 - 최근 회귀 포인트: 로깅 `op_id` 충돌, frozen 모델 다운로드 초기화, `Pillow`/`scikit-learn`/`sentence_transformers` import 검증
 
 ---

@@ -31,6 +31,7 @@
 - `tests/test_file_utils.py`
 - `tests/test_model_download_thread.py`
 - `tests/test_persistence.py`
+- `tests/test_repo_text_encoding.py`
 - `tests/test_qa_state_reset.py`
 - `tests/test_runtime_logging.py`
 - `tests/test_runtime_paths.py`
@@ -43,6 +44,7 @@
 - `pyrightconfig.json`: `pythonVersion=3.14`, `typeCheckingMode=standard`
 - `.editorconfig`: UTF-8(no BOM), LF, final newline 기본 정책
 - `.gitattributes`: 추적 텍스트 파일 line ending 정규화
+- `.vscode/settings.json`: VSCode workspace UTF-8/Pylance/Python 터미널 출력 정책 고정
 - `.gitignore`: 포터블 실행 시 생성될 로컬 상태/내보내기 산출물 분리
 
 ---
@@ -60,7 +62,7 @@
 ### 처리 상태
 
 1. **완료(부분 개선)**  
-   - `main_window.py`: `1056 -> 713` lines  
+   - `main_window.py`: 단일 대형 파일에서 믹스인 분리 후 후속 UX/type refinements까지 반영  
    - `qa_system.py`: 진단/상태 API 분리
 2. **완료**  
    - UI는 `RegulationQASystem` public API 사용
@@ -123,14 +125,18 @@
 5. 모델 선택 UX 개선  
    - 모델 로드 완료 직후 검색 입력 활성화
    - 다운로드 완료 모델 우선 정렬/선택 및 Hugging Face 캐시 구조 기반 상태 판별
+6. Pylance/UTF-8 회귀 방지
+   - `ModelDownloadState` 타입 계약 도입으로 모델 다운로드 상태 접근 강타입화
+   - `tests/test_repo_text_encoding.py`로 추적 텍스트 파일 UTF-8 디코딩 및 replacement char 회귀 검증
 
 ---
 
 ## 6) 문서/정합성 기준
 
 - `README.md`, `claude.md`, `gemini.md`, `docs/*.md`는 현재 코드 구조와 검증 명령을 기준으로 유지
-- 기본 검증 게이트는 `pyright .`, `python tools/smoke_refactor.py`, `pytest -q`
+- 기본 검증 게이트는 `pyright .`, `python tools/smoke_refactor.py`, `python -m pytest -q`
 - 추적 텍스트 파일은 `UTF-8(no BOM)` 기준 유지
+- Windows PowerShell/Python 출력의 표시 깨짐은 실제 저장소 인코딩 손상과 구분해서 확인
 
 ---
 

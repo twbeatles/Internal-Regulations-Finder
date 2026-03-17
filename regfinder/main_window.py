@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from .app_types import AppConfig, FileStatus, TaskResult
+from .app_types import AppConfig, FileStatus, ModelDownloadStateMap, TaskResult
 from .file_utils import FileUtils
 from .qa_system import RegulationQASystem
 from .runtime import get_model_cache_path, get_models_directory, is_model_downloaded, logger
@@ -602,9 +602,9 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             self._refresh_diagnostics_view()
             self._show_status("✅ 히스토리 삭제됨", "#10b981", 3000)
     
-    def _get_model_download_states(self) -> dict[str, dict[str, object]]:
+    def _get_model_download_states(self) -> ModelDownloadStateMap:
         cache_dir = get_models_directory()
-        states: dict[str, dict[str, object]] = {}
+        states: ModelDownloadStateMap = {}
         for name, model_id in AppConfig.AVAILABLE_MODELS.items():
             downloaded = is_model_downloaded(model_id, models_dir=cache_dir)
             model_cache_path = get_model_cache_path(model_id, models_dir=cache_dir)
@@ -643,12 +643,16 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
 
     def _select_preferred_downloaded_model(self, preferred_names: list[str] | None = None) -> bool:
         states = self._get_model_download_states()
-        candidate_names = [name for name in (preferred_names or []) if bool(states.get(name, {}).get("downloaded"))]
+        candidate_names = [
+            name
+            for name in (preferred_names or [])
+            if (state := states.get(name)) is not None and state["downloaded"]
+        ]
         if not candidate_names:
             candidate_names = [
                 name
                 for name in AppConfig.AVAILABLE_MODELS
-                if bool(states.get(name, {}).get("downloaded"))
+                if states[name]["downloaded"]
             ]
         if not candidate_names:
             return False
@@ -662,7 +666,7 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         ordered_names = sorted(
             AppConfig.AVAILABLE_MODELS.keys(),
             key=lambda name: (
-                not bool(states.get(name, {}).get("downloaded")),
+                not states[name]["downloaded"],
                 list(AppConfig.AVAILABLE_MODELS.keys()).index(name),
             ),
         )
@@ -671,12 +675,12 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         self.model_combo.blockSignals(True)
         self.model_combo.clear()
         for name in ordered_names:
-            state = states.get(name, {})
-            downloaded = bool(state.get("downloaded"))
+            state = states[name]
+            downloaded = state["downloaded"]
             marker = "✅" if downloaded else "☁️"
             label = f"{marker} {name}"
-            if downloaded and int(state.get("size_bytes", 0) or 0) > 0:
-                label += f" ({FileUtils.format_size(int(state.get('size_bytes', 0) or 0))})"
+            if downloaded and state["size_bytes"] > 0:
+                label += f" ({FileUtils.format_size(state['size_bytes'])})"
             self.model_combo.addItem(label, name)
         target_index = self.model_combo.findData(selected_name)
         if target_index < 0:
@@ -699,8 +703,8 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         """모델 다운로드 상태/선택 상태 업데이트"""
         cache_dir = get_models_directory()
         states = self._get_model_download_states()
-        downloaded_names = [name for name, state in states.items() if bool(state.get("downloaded"))]
-        total_size = sum(int(state.get("size_bytes", 0) or 0) for state in states.values())
+        downloaded_names = [name for name, state in states.items() if state["downloaded"]]
+        total_size = sum(state["size_bytes"] for state in states.values())
         total_models = len(AppConfig.AVAILABLE_MODELS)
 
         if downloaded_names:
@@ -711,17 +715,17 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
 
         tooltip_lines = [f"경로: {cache_dir}", ""]
         for name in AppConfig.AVAILABLE_MODELS:
-            state = states.get(name, {})
-            downloaded = bool(state.get("downloaded"))
-            size_bytes = int(state.get("size_bytes", 0) or 0)
+            state = states[name]
+            downloaded = state["downloaded"]
+            size_bytes = state["size_bytes"]
             status = "다운로드 완료" if downloaded else "온라인 필요"
             size_text = f" ({FileUtils.format_size(size_bytes)})" if size_bytes > 0 else ""
             tooltip_lines.append(f"- {name}: {status}{size_text}")
         self.model_status_label.setToolTip("\n".join(tooltip_lines))
 
         if hasattr(self, "model_selection_label"):
-            current_state = states.get(self.model_name, {})
-            current_status = "다운로드 완료" if bool(current_state.get("downloaded")) else "온라인 필요"
+            current_state = states.get(self.model_name)
+            current_status = "다운로드 완료" if current_state is not None and current_state["downloaded"] else "온라인 필요"
             self.model_selection_label.setText(f"현재 선택: {self.model_name} | 상태: {current_status}")
 
         if hasattr(self, "prefer_downloaded_btn"):
@@ -753,14 +757,14 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             checkboxes = {}
             model_states = self._get_model_download_states()
             for name, model_id in AppConfig.AVAILABLE_MODELS.items():
-                state = model_states.get(name, {})
-                downloaded = bool(state.get("downloaded"))
-                size_bytes = int(state.get("size_bytes", 0) or 0)
+                state = model_states[name]
+                downloaded = state["downloaded"]
+                size_bytes = state["size_bytes"]
                 status_text = "다운로드 완료" if downloaded else "온라인 필요"
                 size_text = f" ({FileUtils.format_size(size_bytes)})" if size_bytes > 0 else ""
                 checkbox = QCheckBox(f"{name} [{status_text}{size_text}]")
                 checkbox.setChecked(not downloaded)
-                checkbox.setToolTip(f"모델 ID: {model_id}\n상태: {status_text}\n경로: {state.get('cache_path', '')}")
+                checkbox.setToolTip(f"모델 ID: {model_id}\n상태: {status_text}\n경로: {state['cache_path']}")
                 checkboxes[name] = (checkbox, model_id)
                 dialog_layout.addWidget(checkbox)
             

@@ -44,6 +44,8 @@ This file tracks architecture and maintenance rules after modularization and fol
 - Bookmark save/export and multi recent-folder list supported.
 - Diagnostic tab includes index status + search log summary.
 - Error dialogs include error-code-specific recovery guide text.
+- Empty-state cards use dedicated object names/styles to avoid label background bleed-through.
+- Frozen onefile model download uses in-process fallback and validates `Pillow`, `scikit-learn`, `sentence_transformers` before loading embeddings.
 
 ---
 
@@ -84,7 +86,12 @@ This file tracks architecture and maintenance rules after modularization and fol
   - `regfinder.main_window_ui_mixin`
   - `regfinder.main_window_mixins`
   - `regfinder.qa_system_mixins`
+- Spec also bundles runtime metadata required for offline embeddings:
+  - `sentence-transformers`
+  - `scikit-learn`
+  - `pillow`
 - Spec excludes dev-only tooling such as `pytest`, `pyright`, `mypy`
+- Do not exclude `PIL` / `Pillow` or `scikit-learn` while slimming the EXE; packaged `sentence_transformers` import path depends on them.
 
 ---
 

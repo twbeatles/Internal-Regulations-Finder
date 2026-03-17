@@ -1,10 +1,56 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import sys
+
+from PyQt6.QtGui import QFont, QFontDatabase
+
+WINDOWS_UI_FONT_CANDIDATES = ("Malgun Gothic", "맑은 고딕")
+
+
+def get_preferred_ui_font_family(
+    platform_name: str | None = None,
+    available_families: list[str] | None = None,
+) -> str | None:
+    platform_name = platform_name or sys.platform
+    if not platform_name.startswith("win"):
+        return None
+
+    if available_families is None:
+        available_families = list(QFontDatabase.families())
+
+    family_lookup = {family.casefold(): family for family in available_families}
+    for candidate in WINDOWS_UI_FONT_CANDIDATES:
+        matched = family_lookup.get(candidate.casefold())
+        if matched:
+            return matched
+    return None
+
+
+def ui_font(point_size: int | None = None, weight: int | QFont.Weight | None = None) -> QFont:
+    font = QFont()
+    family = get_preferred_ui_font_family()
+    if family:
+        font.setFamily(family)
+    if point_size is not None:
+        font.setPointSize(point_size)
+    if weight is not None:
+        font.setWeight(weight)
+    return font
+
+
 DARK_STYLE = """
 /* 기본 위젯 */
-QMainWindow, QWidget { background-color: #1a1a2e; color: #eaeaea; }
-QLabel { color: #eaeaea; }
+QMainWindow { background-color: #1a1a2e; }
+QWidget { color: #eaeaea; }
+QWidget#appCentral,
+QWidget#searchView,
+QWidget#filesView,
+QWidget#bookmarksView,
+QWidget#diagnosticsView,
+QWidget#settingsView { background-color: #1a1a2e; }
+QWidget#resultContainer { background: transparent; }
+QLabel { color: #eaeaea; background: transparent; }
 
 /* 탭 위젯 */
 QTabWidget::pane { border: none; background: #16213e; border-radius: 8px; }
@@ -92,6 +138,14 @@ QFrame#card:hover { border-color: #1a4a70; }
 QFrame#statCard { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0f3460, stop:1 #16213e); border-radius: 12px; border: 1px solid #1a4a70; }
 QFrame#resultCard { background: #16213e; border-radius: 12px; border: 1px solid #0f3460; }
 QFrame#resultCard:hover { border-color: #e94560; }
+QFrame#emptyStateCard {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #16213e, stop:1 #18284a);
+    border-radius: 18px;
+    border: 1px solid #0f4f8a;
+}
+QLabel#emptyStateIcon { color: #f8fafc; background: transparent; }
+QLabel#emptyStateTitle { color: #f8fafc; font-size: 22px; font-weight: 700; background: transparent; }
+QLabel#emptyStateDescription { color: #9fb3c8; font-size: 14px; line-height: 1.5em; background: transparent; }
 
 /* 슬라이더 */
 QSlider::groove:horizontal { background: #0f3460; height: 6px; border-radius: 3px; }

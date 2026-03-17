@@ -27,23 +27,6 @@ def _import_attr(module: str, attr: str) -> Any:
     except AttributeError as e:
         raise ImportError(f"모듈 '{module}'에서 '{attr}'를 찾을 수 없습니다") from e
 
-# ============================================================================
-# 상수 및 설정
-# ============================================================================
-_LOG_RECORD_FACTORY = logging.getLogRecordFactory()
-
-
-def _log_record_factory(*args, **kwargs):
-    record = _LOG_RECORD_FACTORY(*args, **kwargs)
-    # Formatter에서 항상 %(op_id)s를 사용할 수 있도록 기본값 주입
-    if not hasattr(record, "op_id"):
-        record.op_id = "-"
-    return record
-
-
-logging.setLogRecordFactory(_log_record_factory)
-
-
 _OP_COUNTER = itertools.count(1)
 
 
@@ -159,14 +142,15 @@ def setup_logger() -> logging.Logger:
         backupCount=3,
         encoding='utf-8'
     )
-    fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - [%(threadName)s] [op:%(op_id)s] %(message)s'))
+    fmt = '%(asctime)s - %(levelname)s - [%(threadName)s] [op:%(op_id)s] %(message)s'
+    fh.setFormatter(logging.Formatter(fmt, defaults={"op_id": "-"}))
     logger.addHandler(fh)
     
     # 콘솔 로거 (개발 환경용)
     if not getattr(sys, 'frozen', False):
         ch = logging.StreamHandler()
         ch.setLevel(logging.INFO)
-        ch.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - [%(threadName)s] [op:%(op_id)s] %(message)s'))
+        ch.setFormatter(logging.Formatter(fmt, defaults={"op_id": "-"}))
         logger.addHandler(ch)
          
     return logger

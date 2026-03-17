@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .app_types import AppConfig
+from .ui_style import ui_font
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
@@ -56,6 +57,7 @@ class MainWindowUIBuilderMixin:
         """메인 레이아웃 설정"""
         self = _as_window(self)
         central = QWidget()
+        central.setObjectName("appCentral")
         self.setCentralWidget(central)
         self.main_layout = QVBoxLayout(central)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
@@ -71,7 +73,7 @@ class MainWindowUIBuilderMixin:
         header_layout.setContentsMargins(20, 0, 20, 0)
 
         logo = QLabel(f"📚 {AppConfig.APP_NAME}")
-        logo.setFont(QFont("", 16, QFont.Weight.Bold))
+        logo.setFont(ui_font(16, QFont.Weight.Bold))
         logo.setStyleSheet("color: white;")
         header_layout.addWidget(logo)
         header_layout.addStretch()
@@ -116,6 +118,7 @@ class MainWindowUIBuilderMixin:
         """검색 탭 뷰 생성"""
         self = _as_window(self)
         view = QWidget()
+        view.setObjectName("searchView")
         layout = QVBoxLayout(view)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
@@ -125,6 +128,7 @@ class MainWindowUIBuilderMixin:
         self.result_area = QScrollArea()
         self.result_area.setWidgetResizable(True)
         self.result_container = QWidget()
+        self.result_container.setObjectName("resultContainer")
         self.result_layout = QVBoxLayout(self.result_container)
         self.result_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.result_layout.setContentsMargins(10, 10, 10, 10)
@@ -236,6 +240,7 @@ class MainWindowUIBuilderMixin:
         """파일 탭 뷰 생성"""
         self = _as_window(self)
         view = QWidget()
+        view.setObjectName("filesView")
         layout = QVBoxLayout(view)
         layout.setContentsMargins(20, 20, 20, 20)
 
@@ -245,7 +250,7 @@ class MainWindowUIBuilderMixin:
         stats_layout.setContentsMargins(20, 15, 20, 15)
 
         self.stats_files = QLabel("📄 0개 파일")
-        self.stats_files.setFont(QFont("", 12, QFont.Weight.Bold))
+        self.stats_files.setFont(ui_font(12, QFont.Weight.Bold))
         stats_layout.addWidget(self.stats_files)
 
         self.stats_chunks = QLabel("📊 0 청크")
@@ -279,6 +284,7 @@ class MainWindowUIBuilderMixin:
         """설정 탭 뷰 생성"""
         self = _as_window(self)
         view = QWidget()
+        view.setObjectName("settingsView")
         layout = QVBoxLayout(view)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
@@ -381,6 +387,6 @@ class MainWindowUIBuilderMixin:
         layout.setContentsMargins(20, 15, 20, 15)
 
         title_label = QLabel(title)
-        title_label.setFont(QFont("", 13, QFont.Weight.Bold))
+        title_label.setFont(ui_font(13, QFont.Weight.Bold))
         layout.addWidget(title_label)
         return card

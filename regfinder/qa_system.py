@@ -68,6 +68,7 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
         try:
             if progress_cb: progress_cb("라이브러리 로드 중...")
             torch = _import_module("torch")
+            self._validate_embedding_runtime()
             HuggingFaceEmbeddings = _import_attr("langchain_huggingface", "HuggingFaceEmbeddings")
             if progress_cb: progress_cb("모델 로딩 중...")
             cache_dir = get_models_directory()
@@ -112,6 +113,20 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
                 error_code="MODEL_LOAD_FAIL",
                 debug=traceback.format_exc(),
             )
+
+    def _validate_embedding_runtime(self) -> None:
+        try:
+            _import_module("PIL.Image")
+        except Exception as e:
+            raise ImportError(f"Pillow import 실패: {e}") from e
+        try:
+            _import_module("sklearn.metrics.pairwise")
+        except Exception as e:
+            raise ImportError(f"scikit-learn import 실패: {e}") from e
+        try:
+            _import_module("sentence_transformers")
+        except Exception as e:
+            raise ImportError(f"sentence_transformers import 실패: {e}") from e
     
     def _get_cache_dir(self, folder: str) -> str:
         if not self.model_id:
@@ -802,8 +817,8 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
         ocr_engine: Optional[BaseOCREngine] = None,
     ) -> Tuple[List[str], List[Any], Dict[str, Dict[str, Any]], List[str], List[Dict[str, Any]], List[str]]:
         """문서 추출 및 청크 분할"""
-        RecursiveCharacterTextSplitter = _import_attr("langchain.text_splitter", "RecursiveCharacterTextSplitter")
-        Document = _import_attr("langchain.docstore.document", "Document")
+        RecursiveCharacterTextSplitter = self._import_text_splitter()
+        Document = self._import_document_class()
 
         splitter = RecursiveCharacterTextSplitter(
             separators=["\n\n", "\n", " ", ""],
@@ -882,7 +897,20 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
                 
         return failed, new_docs, new_cache_files, new_texts, new_metas, new_ids
 
+    def _import_text_splitter(self):
+        """LangChain 구/신 패키지 구조를 모두 지원한다."""
+        try:
+            return _import_attr("langchain_text_splitters", "RecursiveCharacterTextSplitter")
+        except ImportError:
+            return _import_attr("langchain.text_splitter", "RecursiveCharacterTextSplitter")
+
+    def _import_document_class(self):
+        """LangChain 구/신 패키지 구조를 모두 지원한다."""
+        try:
+            return _import_attr("langchain_core.documents", "Document")
+        except ImportError:
+            return _import_attr("langchain.docstore.document", "Document")
+
     def cleanup(self):
         self.reset_runtime_state(reset_model=False)
         gc.collect()
-

@@ -18,7 +18,10 @@ pip-wheel-metadata/
 
 # Test/type/lint cache
 .pytest_cache/
+.hypothesis/
 .mypy_cache/
+.pyre/
+.pytype/
 .ruff_cache/
 .coverage
 .coverage.*
@@ -29,6 +32,10 @@ htmlcov/
 .vscode/
 *.swp
 *.swo
+*.tmp
+*.temp
+*.bak
+*.orig
 .DS_Store
 Thumbs.db
 desktop.ini

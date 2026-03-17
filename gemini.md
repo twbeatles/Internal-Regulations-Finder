@@ -7,6 +7,9 @@
 - 워커 관리는 `WorkerRegistry`로 통합
 - 설정은 `ConfigManager`(schema_version=2) 기반으로 마이그레이션 처리
 - 정적 분석 기준은 `pyrightconfig.json`으로 고정
+- frozen(onefile) 모델 다운로드는 subprocess 대신 in-process 경로 사용
+- 오프라인 임베딩 런타임은 `Pillow` / `scikit-learn` / `sentence_transformers` 사전검증 추가
+- 전역 QSS는 화면 컨테이너 단위 배경 적용으로 조정되어 라벨 배경 덮어쓰기 회귀를 방지
 
 ## 현재 사용자 기능
 
@@ -16,6 +19,7 @@
 - 최근 폴더 다중 관리
 - 진단 탭(인덱스 상태 + 검색 로그 요약)
 - 오류 코드별 가이드 메시지
+- 다운로드 실패 시 `op_id`와 실제 import 실패 패키지명을 함께 노출
 
 ## 운영 규칙
 
@@ -24,6 +28,7 @@
 3. 검색/인덱스 상태는 `RegulationQASystem` public API를 통해 조회
 4. 종료 시 워커 취소 및 리소스 정리
 5. 추적 텍스트 파일은 `.editorconfig`, `.gitattributes` 기준으로 `UTF-8(no BOM)` / `LF` 유지
+6. PyInstaller 경량화 시 `PIL` / `Pillow` / `scikit-learn` 제외 여부를 먼저 검토
 
 ## 검증 명령
 

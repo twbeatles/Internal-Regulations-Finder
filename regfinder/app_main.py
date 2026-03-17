@@ -8,13 +8,14 @@ from PyQt6.QtWidgets import QApplication
 from .main_window import MainWindow
 from .qa_system import RegulationQASystem
 from .runtime import logger
-from .ui_style import DARK_STYLE
+from .ui_style import DARK_STYLE, ui_font
 
 
 def main():
     try:
         app = QApplication(sys.argv)
         app.setStyle('Fusion')
+        app.setFont(ui_font())
         app.setStyleSheet(DARK_STYLE)
 
         qa = RegulationQASystem()

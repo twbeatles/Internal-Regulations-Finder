@@ -23,6 +23,7 @@ pytest -q
 
 - [ ] 앱 실행/초기 모델 로드 상태 표시
 - [ ] 모델 로드 결과에 따른 검색/폴더 버튼 활성화
+- [ ] 빈 상태 카드/라벨 배경이 전역 스타일에 가려지지 않는지 확인
 
 ## 3. Search UX
 
@@ -44,6 +45,14 @@ pytest -q
 - [ ] 검색 로그 요약 표시
 - [ ] 진단 zip 내보내기 동작
 - [ ] 오류 코드별 가이드 메시지 표시
+- [ ] 오류 대화상자에 `op_id`가 함께 표시되는지 확인
+- [ ] 오프라인 모델 다운로드 실패 시 실제 import 실패 패키지명(`Pillow`/`scikit-learn`/`sentence_transformers`)이 노출되는지 확인
+
+## 5-1. Offline model download / packaging
+
+- [ ] onefile EXE에서 모델 선택 다이얼로그가 강제 종료 없이 열리고 완료까지 진행되는지 확인
+- [ ] onefile EXE에서 `SNU SBERT` 다운로드 완료 동작 확인
+- [ ] 부분 실패 시 `DOWNLOAD_PARTIAL_FAIL` 가이드 문구와 실패 모델 목록이 함께 표시되는지 확인
 
 ## 6. Shutdown
 

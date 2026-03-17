@@ -36,6 +36,7 @@ from .ui_components import (
     ResultCard,
     SearchHistory,
 )
+from .ui_style import ui_font
 from .worker_registry import WorkerRegistry
 from .workers import DocumentProcessorThread, ModelDownloadThread, ModelLoaderThread, SearchThread
 
@@ -390,7 +391,7 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         header_layout.setContentsMargins(15, 10, 15, 10)
         
         query_label = QLabel(f"🔎 \"{query}\" - {len(result.data)}개 결과")
-        query_label.setFont(QFont("", 12, QFont.Weight.Bold))
+        query_label.setFont(ui_font(12, QFont.Weight.Bold))
         header_layout.addWidget(query_label)
         
         # 검색 시간 표시
@@ -626,81 +627,86 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         from PyQt6.QtWidgets import QDialog, QDialogButtonBox
         if self.workers.is_running("download"):
             return
-        
-        # 모델 선택 다이얼로그 생성
         dialog = QDialog(self)
-        dialog.setWindowTitle("오프라인 모델 다운로드")
-        dialog.setMinimumWidth(400)
-        dialog_layout = QVBoxLayout(dialog)
-        
-        # 안내 텍스트
-        info_label = QLabel(
-            "다운로드할 모델을 선택하세요.\n"
-            "각 모델은 약 400MB~1GB입니다.\n"
-            "인터넷 연결이 필요하며, 완료 후 오프라인에서 사용할 수 있습니다."
-        )
-        info_label.setStyleSheet("color: #888; margin-bottom: 10px;")
-        dialog_layout.addWidget(info_label)
-        
-        # 체크박스 생성
-        checkboxes = {}
-        for name, model_id in AppConfig.AVAILABLE_MODELS.items():
-            checkbox = QCheckBox(name)
-            checkbox.setChecked(True)  # 기본 선택
-            checkbox.setToolTip(f"모델 ID: {model_id}")
-            checkboxes[name] = (checkbox, model_id)
-            dialog_layout.addWidget(checkbox)
-        
-        # 전체 선택/해제 버튼
-        btn_row = QHBoxLayout()
-        select_all_btn = QPushButton("전체 선택")
-        select_all_btn.clicked.connect(lambda: [cb.setChecked(True) for cb, _ in checkboxes.values()])
-        btn_row.addWidget(select_all_btn)
-        deselect_all_btn = QPushButton("전체 해제")
-        deselect_all_btn.clicked.connect(lambda: [cb.setChecked(False) for cb, _ in checkboxes.values()])
-        btn_row.addWidget(deselect_all_btn)
-        btn_row.addStretch()
-        dialog_layout.addLayout(btn_row)
-        
-        # 확인/취소 버튼
-        button_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        button_box.accepted.connect(dialog.accept)
-        button_box.rejected.connect(dialog.reject)
-        dialog_layout.addWidget(button_box)
-        
-        # 다이얼로그 표시
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-        
-        # 선택된 모델 수집
-        selected_models = [
-            (name, model_id) 
-            for name, (checkbox, model_id) in checkboxes.items() 
-            if checkbox.isChecked()
-        ]
-        
-        if not selected_models:
-            QMessageBox.warning(self, "알림", "선택된 모델이 없습니다.")
-            return
-        
-        # 진행 다이얼로그 표시
-        self.progress_dialog = ProgressDialog(self, "모델 다운로드 중")
-        dialog_x = self.x() + (self.width() - self.progress_dialog.width()) // 2
-        dialog_y = self.y() + (self.height() - self.progress_dialog.height()) // 2
-        self.progress_dialog.move(dialog_x, dialog_y)
-        self.progress_dialog.show()
-        
-        # 선택된 모델만 다운로드
-        worker = ModelDownloadThread(selected_models)
-        worker.progress.connect(self.progress_dialog.update_progress)
-        worker.finished.connect(self._on_download_done)
-        worker.finished.connect(lambda *_: self.workers.clear("download"))
-        worker.finished.connect(lambda *_: worker.deleteLater())
-        self.progress_dialog.canceled.connect(worker.cancel)
-        self.workers.set("download", worker)
-        worker.start()
+        try:
+            # 모델 선택 다이얼로그 생성
+            dialog.setWindowTitle("오프라인 모델 다운로드")
+            dialog.setMinimumWidth(400)
+            dialog_layout = QVBoxLayout(dialog)
+            
+            # 안내 텍스트
+            info_label = QLabel(
+                "다운로드할 모델을 선택하세요.\n"
+                "각 모델은 약 400MB~1GB입니다.\n"
+                "인터넷 연결이 필요하며, 완료 후 오프라인에서 사용할 수 있습니다."
+            )
+            info_label.setStyleSheet("color: #888; margin-bottom: 10px;")
+            dialog_layout.addWidget(info_label)
+            
+            # 체크박스 생성
+            checkboxes = {}
+            for name, model_id in AppConfig.AVAILABLE_MODELS.items():
+                checkbox = QCheckBox(name)
+                checkbox.setChecked(True)  # 기본 선택
+                checkbox.setToolTip(f"모델 ID: {model_id}")
+                checkboxes[name] = (checkbox, model_id)
+                dialog_layout.addWidget(checkbox)
+            
+            # 전체 선택/해제 버튼
+            btn_row = QHBoxLayout()
+            select_all_btn = QPushButton("전체 선택")
+            select_all_btn.clicked.connect(lambda *_: [cb.setChecked(True) for cb, _ in checkboxes.values()])
+            btn_row.addWidget(select_all_btn)
+            deselect_all_btn = QPushButton("전체 해제")
+            deselect_all_btn.clicked.connect(lambda *_: [cb.setChecked(False) for cb, _ in checkboxes.values()])
+            btn_row.addWidget(deselect_all_btn)
+            btn_row.addStretch()
+            dialog_layout.addLayout(btn_row)
+            
+            # 확인/취소 버튼
+            button_box = QDialogButtonBox(
+                QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+            )
+            button_box.accepted.connect(dialog.accept)
+            button_box.rejected.connect(dialog.reject)
+            dialog_layout.addWidget(button_box)
+            
+            # 다이얼로그 표시
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+            
+            # 선택된 모델 수집
+            selected_models = [
+                (name, model_id)
+                for name, (checkbox, model_id) in checkboxes.items()
+                if checkbox.isChecked()
+            ]
+            
+            if not selected_models:
+                QMessageBox.warning(self, "알림", "선택된 모델이 없습니다.")
+                return
+            
+            # 진행 다이얼로그 표시
+            self.progress_dialog = ProgressDialog(self, "모델 다운로드 중")
+            dialog_x = self.x() + (self.width() - self.progress_dialog.width()) // 2
+            dialog_y = self.y() + (self.height() - self.progress_dialog.height()) // 2
+            self.progress_dialog.move(dialog_x, dialog_y)
+            self.progress_dialog.show()
+            
+            # 선택된 모델만 다운로드
+            worker = ModelDownloadThread(selected_models)
+            worker.progress.connect(self.progress_dialog.update_progress)
+            worker.finished.connect(self._on_download_done)
+            worker.finished.connect(lambda *_: self.workers.clear("download"))
+            worker.finished.connect(lambda *_: worker.deleteLater())
+            self.progress_dialog.canceled.connect(worker.cancel)
+            self.workers.set("download", worker)
+            worker.start()
+        except Exception as e:
+            logger.exception("모델 다운로드 대화상자 초기화 실패")
+            QMessageBox.critical(self, "오류", f"모델 다운로드 시작 실패: {e}")
+        finally:
+            dialog.deleteLater()
     
     def _on_download_done(self, result):
         """모델 다운로드 완료 핸들러"""

@@ -107,6 +107,7 @@ class ModelDownloadThread(BaseWorkerThread):
         return int(proc.returncode or 0)
 
     def _run_download_in_process(self, model_id: str, cache_dir: str, device: str):
+        self._validate_embedding_runtime()
         HuggingFaceEmbeddings = _import_attr("langchain_huggingface", "HuggingFaceEmbeddings")
         _ = HuggingFaceEmbeddings(
             model_name=model_id,
@@ -114,6 +115,20 @@ class ModelDownloadThread(BaseWorkerThread):
             model_kwargs={"device": device},
             encode_kwargs={"normalize_embeddings": True},
         )
+
+    def _validate_embedding_runtime(self):
+        try:
+            _import_module("PIL.Image")
+        except Exception as e:
+            raise ImportError(f"Pillow import 실패: {e}") from e
+        try:
+            _import_module("sklearn.metrics.pairwise")
+        except Exception as e:
+            raise ImportError(f"scikit-learn import 실패: {e}") from e
+        try:
+            _import_module("sentence_transformers")
+        except Exception as e:
+            raise ImportError(f"sentence_transformers import 실패: {e}") from e
     
     def run(self):
         try:

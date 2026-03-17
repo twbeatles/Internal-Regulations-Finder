@@ -41,6 +41,8 @@
 - 실행 엔트리 유지: `python "사내 규정검색기 v9 PyQt6.py"`
 - PyInstaller 진입 유지: `사내 규정검색기 v9 PyQt6.spec`
 - spec hiddenimports에 신규 internal 모듈 추가 반영
+- frozen(onefile) 모델 다운로드는 subprocess 대신 in-process 경로로 폴백
+- spec은 offline embeddings를 위해 `sentence-transformers` / `scikit-learn` / `pillow` 메타데이터를 포함
 - 정적 분석 기준은 `pyrightconfig.json`으로 저장소 루트에 고정
 - 텍스트 인코딩/줄바꿈 정책은 `.editorconfig` + `.gitattributes`로 고정
 

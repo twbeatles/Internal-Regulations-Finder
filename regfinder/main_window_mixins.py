@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
 from .app_types import AppConfig, TaskResult
 from .file_utils import FileUtils
 from .runtime import get_data_directory, get_models_directory
+from .ui_style import ui_font
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
@@ -95,6 +96,7 @@ class MainWindowInsightsMixin:
     def _create_bookmarks_view(self) -> QWidget:
         self = _as_window(self)
         view = QWidget()
+        view.setObjectName("bookmarksView")
         layout = QVBoxLayout(view)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(10)
@@ -105,7 +107,7 @@ class MainWindowInsightsMixin:
         top_layout.setContentsMargins(12, 10, 12, 10)
 
         self.bookmark_count_label = QLabel("⭐ 북마크 0개")
-        self.bookmark_count_label.setFont(QFont("", 12, QFont.Weight.Bold))
+        self.bookmark_count_label.setFont(ui_font(12, QFont.Weight.Bold))
         top_layout.addWidget(self.bookmark_count_label)
         top_layout.addStretch()
 
@@ -141,6 +143,7 @@ class MainWindowInsightsMixin:
     def _create_diagnostics_view(self) -> QWidget:
         self = _as_window(self)
         view = QWidget()
+        view.setObjectName("diagnosticsView")
         layout = QVBoxLayout(view)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(12)
@@ -151,7 +154,7 @@ class MainWindowInsightsMixin:
         top_layout.setContentsMargins(12, 10, 12, 10)
 
         self.diag_summary_label = QLabel("🧰 인덱스/로그 상태")
-        self.diag_summary_label.setFont(QFont("", 12, QFont.Weight.Bold))
+        self.diag_summary_label.setFont(ui_font(12, QFont.Weight.Bold))
         top_layout.addWidget(self.diag_summary_label)
         top_layout.addStretch()
 

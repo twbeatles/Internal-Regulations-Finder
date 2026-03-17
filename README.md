@@ -16,8 +16,10 @@
 - 암호화 PDF 비밀번호 입력(세션 메모리 재사용, 디스크 저장 안 함)
 - OCR 인터페이스 확장 포인트 제공(기본 엔진 미포함)
 - 오프라인 모델 선택 다운로드(취소 지원)
+- EXE(onefile) 환경 오프라인 모델 다운로드 경로 지원
 - 진단 탭(인덱스 상태 + 검색 로그 요약) 및 진단 ZIP 내보내기
 - 오류 코드별 가이드 메시지 + 상세 디버그(`TaskResult.debug`)
+- 다운로드/모델 로드 전 `Pillow` / `scikit-learn` / `sentence_transformers` 런타임 사전검증
 
 ---
 
@@ -26,7 +28,7 @@
 ### 1) 의존성 설치
 
 ```bash
-pip install PyQt6 torch langchain langchain-huggingface langchain-community faiss-cpu python-docx pypdf olefile charset-normalizer
+pip install PyQt6 torch sentence-transformers scikit-learn pillow langchain-huggingface langchain-community langchain-text-splitters langchain-core faiss-cpu python-docx pypdf olefile charset-normalizer
 ```
 
 ### 2) 앱 실행
@@ -45,6 +47,7 @@ python "사내 규정검색기 v9 PyQt6.py"
 - 기준 타입 체크 레벨: `pythonVersion = 3.14`, `typeCheckingMode = standard`
 - `.editorconfig` + `.gitattributes`로 추적 텍스트 파일의 `UTF-8(no BOM)`, `LF`, final newline 정책을 고정
 - PyInstaller spec은 `pytest`, `pyright` 같은 개발 전용 도구를 번들에서 제외
+- PyInstaller onefile 번들은 오프라인 모델 다운로드를 위해 `sentence_transformers`, `scikit-learn`, `Pillow` 메타데이터/런타임을 포함
 
 ---
 
@@ -83,6 +86,7 @@ pytest -q
 
 - 기준선: `pyright .` 0 errors
 - 추적 텍스트 파일은 `UTF-8(no BOM)` 기준 유지
+- 최근 회귀 포인트: 로깅 `op_id` 충돌, frozen 모델 다운로드 초기화, `Pillow`/`scikit-learn`/`sentence_transformers` import 검증
 
 ---
 
@@ -94,6 +98,12 @@ pyinstaller "사내 규정검색기 v9 PyQt6.spec"
 ```
 
 출력: `dist/사내 규정검색기 v9.3_onefile.exe`
+
+추가 메모:
+
+- onefile EXE는 `sys.executable -c` 서브프로세스 대신 in-process 다운로드 경로를 사용
+- `transformers`가 `PIL.Image`를 모듈 초기화 시 참조하므로, 경량화 시 `Pillow` 제외 금지
+- 현재 onefile 크기는 `torch` / `faiss` / `PyQt6` 포함으로 인해 약 300MB 수준
 
 ---
 
@@ -115,6 +125,7 @@ pyinstaller "사내 규정검색기 v9 PyQt6.spec"
 - 이미지 PDF는 기본 OCR 엔진이 미포함이라 별도 엔진 연결 전에는 텍스트 추출 불가
 - 암호화 PDF는 올바른 비밀번호가 필요
 - HWP는 문서 형식 손상/변형에 따라 추출 실패 가능
+- 오프라인 모델 다운로드는 최초 1회 인터넷 연결이 필요하며, 실패 시 오류창의 `op_id`와 실제 import 실패 패키지명을 함께 확인하는 것이 우선
 
 ---
 

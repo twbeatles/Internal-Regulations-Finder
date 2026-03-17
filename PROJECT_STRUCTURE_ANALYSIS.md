@@ -27,9 +27,12 @@
 - `tests/test_bm25_state.py`
 - `tests/test_document_extractor_hwp.py`
 - `tests/test_document_extractor_pdf.py`
+- `tests/test_embedding_runtime_validation.py`
 - `tests/test_file_utils.py`
+- `tests/test_model_download_thread.py`
 - `tests/test_persistence.py`
 - `tests/test_qa_state_reset.py`
+- `tests/test_runtime_logging.py`
 - `tests/test_runtime_paths.py`
 - `tests/test_search_features.py`
 - `tests/test_worker_registry.py`
@@ -101,6 +104,21 @@
 
 - 개발 전용 품질 도구(`pytest`, `pyright`)는 번들 제외
 - `pyrightconfig.json`, `.editorconfig`, `.gitattributes`는 개발 자산이며 번들 대상 아님
+- offline embeddings 런타임 유지를 위해 `sentence-transformers`, `scikit-learn`, `pillow` 메타데이터 번들 유지
+- frozen(onefile) 다운로드 경로는 in-process 실행으로 유지
+
+---
+
+## 5-1) 최근 안정화 반영
+
+1. 로깅 `op_id` 충돌 제거  
+   - `LoggerAdapter(extra={"op_id": ...})`와 formatter 기본값 충돌 없이 동작하도록 정리
+2. 오프라인 모델 다운로드 초기화 예외 처리 보강  
+   - 다이얼로그 초기화 실패 시 강제 종료 대신 오류 표시
+3. packaged EXE 임베딩 의존성 사전검증 추가  
+   - `Pillow` → `scikit-learn` → `sentence_transformers` 순으로 import 검증
+4. 빈 상태 UI 스타일 회귀 수정  
+   - 전역 `QWidget` 배경 적용을 화면 컨테이너로 한정
 
 ---
 

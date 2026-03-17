@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
 from .app_types import AppConfig
 from .file_utils import FileUtils
 from .runtime import get_history_path, logger
+from .ui_style import ui_font
 
 class SearchHistory:
     def __init__(self):
@@ -190,7 +191,7 @@ class ResultCard(QFrame):
         # 내용 (검색어 하이라이트 포함)
         content = QTextEdit()
         content.setReadOnly(True)
-        content.setFont(QFont("", font_size))
+        content.setFont(ui_font(font_size))
         content.setMinimumHeight(80)
         content.setMaximumHeight(180)
         
@@ -246,15 +247,17 @@ class EmptyStateWidget(QFrame):
     
     def __init__(self, icon: str = "📂", title: str = "", description: str = ""):
         super().__init__()
-        self.setObjectName("card")
+        self.setObjectName("emptyStateCard")
+        self.setMinimumHeight(220)
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(40, 60, 40, 60)
-        layout.setSpacing(15)
+        layout.setSpacing(12)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         # 아이콘
         icon_label = QLabel(icon)
+        icon_label.setObjectName("emptyStateIcon")
         icon_label.setStyleSheet("font-size: 48px;")
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(icon_label)
@@ -262,17 +265,18 @@ class EmptyStateWidget(QFrame):
         # 제목
         if title:
             title_label = QLabel(title)
-            title_label.setFont(QFont("", 16, QFont.Weight.Bold))
-            title_label.setStyleSheet("color: #eaeaea;")
+            title_label.setObjectName("emptyStateTitle")
+            title_label.setFont(ui_font(16, QFont.Weight.Bold))
             title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(title_label)
         
         # 설명
         if description:
             desc_label = QLabel(description)
-            desc_label.setStyleSheet("color: #888; font-size: 13px;")
+            desc_label.setObjectName("emptyStateDescription")
             desc_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             desc_label.setWordWrap(True)
+            desc_label.setMaximumWidth(420)
             layout.addWidget(desc_label)
 
 
@@ -302,7 +306,7 @@ class ProgressDialog(QFrame):
         
         # 제목
         self.title_label = QLabel(title)
-        self.title_label.setFont(QFont("", 14, QFont.Weight.Bold))
+        self.title_label.setFont(ui_font(14, QFont.Weight.Bold))
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.title_label)
         

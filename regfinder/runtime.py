@@ -8,9 +8,9 @@ import os
 import sys
 from datetime import datetime
 from types import ModuleType
-from typing import Any, MutableMapping, Optional
+from typing import Any, Callable, MutableMapping, Optional
 
-from .app_types import AppConfig
+from .app_types import AppConfig, EmbeddingRuntimeState
 
 
 def _import_module(module: str) -> ModuleType:
@@ -192,3 +192,43 @@ def setup_logger() -> logging.Logger:
     return logger
 
 logger = setup_logger()
+
+_EMBEDDING_RUNTIME_STATE = EmbeddingRuntimeState()
+
+
+def validate_embedding_runtime(
+    import_module: Callable[[str], ModuleType] = _import_module,
+) -> EmbeddingRuntimeState:
+    use_cache = import_module is _import_module
+    if use_cache and _EMBEDDING_RUNTIME_STATE.checked:
+        if not _EMBEDDING_RUNTIME_STATE.available:
+            raise ImportError(_EMBEDDING_RUNTIME_STATE.error)
+        return _EMBEDDING_RUNTIME_STATE
+
+    state = _EMBEDDING_RUNTIME_STATE if use_cache else EmbeddingRuntimeState()
+    try:
+        import_module("PIL.Image")
+    except Exception as e:
+        state.checked = True
+        state.available = False
+        state.error = f"Pillow import 실패: {e}"
+        raise ImportError(state.error) from e
+    try:
+        import_module("sklearn.metrics.pairwise")
+    except Exception as e:
+        state.checked = True
+        state.available = False
+        state.error = f"scikit-learn import 실패: {e}"
+        raise ImportError(state.error) from e
+    try:
+        import_module("sentence_transformers")
+    except Exception as e:
+        state.checked = True
+        state.available = False
+        state.error = f"sentence_transformers import 실패: {e}"
+        raise ImportError(state.error) from e
+
+    state.checked = True
+    state.available = True
+    state.error = ""
+    return state

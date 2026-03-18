@@ -36,17 +36,32 @@
 
 ---
 
+## Phase 3: Performance Refactor / Cache Split
+
+| Source | Extracted/Added | Purpose |
+|---|---|---|
+| `regfinder/qa_system.py` | `regfinder/text_cache.py` | SQLite 기반 텍스트 캐시 |
+| `regfinder/main_window.py` | `regfinder/model_inventory.py` | 모델 다운로드 상태/용량 캐시 |
+| `regfinder/file_utils.py` | `DiscoveredFile` 흐름 | `os.scandir` 기반 파일 discovery + 메타 재사용 |
+| `regfinder/bm25.py` | `BM25Index` | posting 기반 후보 축소 검색 |
+| 신규 | `tools/benchmark_performance.py` | startup/discover/index/search/model-switch 벤치마크 |
+
+---
+
 ## Compatibility Notes
 
 - 실행 엔트리 유지: `python "사내 규정검색기 v9 PyQt6.py"`
 - PyInstaller 진입 유지: `사내 규정검색기 v9 PyQt6.spec`
 - spec hiddenimports에 신규 internal 모듈 추가 반영
+- spec hiddenimports에 `regfinder.text_cache`, `regfinder.model_inventory`, `charset_normalizer` 추가 반영
 - frozen(onefile) 모델 다운로드는 subprocess 대신 in-process 경로로 폴백
 - spec은 offline embeddings를 위해 `sentence-transformers` / `scikit-learn` / `pillow` 메타데이터를 포함
+- lazy 인코딩 fallback을 위해 `charset_normalizer`는 spec에서 제외 금지
 - 정적 분석 기준은 `pyrightconfig.json`으로 저장소 루트에 고정
 - 텍스트 인코딩/줄바꿈 정책은 `.editorconfig` + `.gitattributes`로 고정
 - VSCode workspace 설정은 `.vscode/settings.json`으로 UTF-8/Pylance 범위를 고정
 - 모델 다운로드 상태 UI는 `ModelDownloadState` 타입 계약으로 강타입화
+- 캐시 스키마는 `CACHE_SCHEMA_VERSION=3`, 설정 스키마는 `CONFIG_SCHEMA_VERSION=2`
 
 ---
 

@@ -1,7 +1,7 @@
 # 📚 사내 규정 검색기 v9.3
 
 > 로컬 AI 기반 사내 규정 문서 검색 프로그램
-> PyQt6 GUI | 하이브리드 검색(Vector + BM25) | 증분 인덱싱 | 오프라인 모델 지원
+> PyQt6 GUI | 하이브리드 검색(Vector + BM25) | 분리 캐시(Text + Vector) | 오프라인 모델 지원
 
 ---
 
@@ -12,16 +12,18 @@
 - 결과 카드 하이라이트, 검색 시간 표시, TXT/CSV 내보내기
 - 북마크 저장/조회/내보내기
 - 최근 폴더 다중 관리
-- 증분 인덱싱/캐시(변경 파일만 재처리)
+- 증분 인덱싱/캐시(변경 파일만 재처리, 모델 전환 시 텍스트 캐시 재사용)
 - 암호화 PDF 비밀번호 입력(세션 메모리 재사용, 디스크 저장 안 함)
 - OCR 인터페이스 확장 포인트 제공(기본 엔진 미포함)
 - 오프라인 모델 선택 다운로드(취소 지원)
 - EXE(onefile) 환경 오프라인 모델 다운로드 경로 지원
 - 모델 로드 완료 직후 검색 입력창 즉시 활성화
 - 설정창에서 다운로드 완료 모델 우선 정렬/선택 및 상태 표시
-- 진단 탭(인덱스 상태 + 검색 로그 요약) 및 진단 ZIP 내보내기
+- 모델 인벤토리 캐시(`model_inventory.json`) 기반 다운로드 상태/용량 표시
+- 진단 탭(인덱스 상태 + 검색 로그 요약 + 마지막 검색 통계) 및 진단 ZIP 내보내기
 - 오류 코드별 가이드 메시지 + 상세 디버그(`TaskResult.debug`)
 - 다운로드/모델 로드 전 `Pillow` / `scikit-learn` / `sentence_transformers` 런타임 사전검증
+- TXT 읽기 fast path(`UTF-8 -> CP949 -> EUC-KR -> charset_normalizer fallback`)로 시작 속도/반복 디코딩 비용 절감
 
 ---
 
@@ -51,7 +53,7 @@ python "사내 규정검색기 v9 PyQt6.py"
 - `.vscode/settings.json`으로 VSCode의 workspace Pylance 범위와 Windows 터미널 UTF-8 Python 출력을 고정
 - `ModelDownloadState` 타입 계약과 `tests/test_repo_text_encoding.py` 회귀 테스트로 모델 상태 추론/인코딩 검증을 고정
 - PyInstaller spec은 `pytest`, `pyright` 같은 개발 전용 도구를 번들에서 제외
-- PyInstaller onefile 번들은 오프라인 모델 다운로드를 위해 `sentence_transformers`, `scikit-learn`, `Pillow` 메타데이터/런타임을 포함
+- PyInstaller onefile 번들은 오프라인 모델 다운로드와 lazy 인코딩 fallback을 위해 `sentence_transformers`, `scikit-learn`, `Pillow`, `charset_normalizer` 런타임을 포함
 
 ---
 
@@ -62,11 +64,13 @@ python "사내 규정검색기 v9 PyQt6.py"
 | `regfinder/app_types.py` | 설정/Enum/데이터 클래스 |
 | `regfinder/runtime.py` | 로깅, 경로 정책, op_id |
 | `regfinder/persistence.py` | 설정 스키마(v2), 북마크/최근폴더/검색로그 저장 |
+| `regfinder/model_inventory.py` | 다운로드 모델 상태/용량 캐시 |
 | `regfinder/worker_registry.py` | 작업 종류별 워커 레지스트리 |
-| `regfinder/file_utils.py` | 파일 읽기/메타/열기/크기 포맷 |
+| `regfinder/file_utils.py` | 파일 읽기/발견(scandir)/메타/열기/크기 포맷 |
 | `regfinder/document_extractor.py` | TXT/DOCX/PDF/HWP 추출(+PDF 비밀번호/OCR 훅) |
-| `regfinder/bm25.py` | BM25Light 검색 |
-| `regfinder/qa_system.py` | 인덱싱/검색/캐시 핵심 |
+| `regfinder/text_cache.py` | 텍스트 캐시(SQLite) |
+| `regfinder/bm25.py` | BM25Index 검색 |
+| `regfinder/qa_system.py` | 인덱싱/검색/텍스트 캐시+벡터 캐시 핵심 |
 | `regfinder/qa_system_mixins.py` | 진단/상태 조회 API |
 | `regfinder/workers.py` | QThread 워커 |
 | `regfinder/ui_components.py` | ResultCard/ProgressDialog 등 |
@@ -83,6 +87,7 @@ python "사내 규정검색기 v9 PyQt6.py"
 ```bash
 pyright .
 python tools/smoke_refactor.py
+python tools/benchmark_performance.py
 python -m py_compile "사내 규정검색기 v9 PyQt6.spec"
 python -m unittest discover -s tests -v
 python -m pytest -q
@@ -91,7 +96,7 @@ python -m pytest -q
 - 기준선: `pyright .` 0 errors
 - 추적 텍스트 파일은 `UTF-8(no BOM)` 기준 유지
 - Windows PowerShell/Python 출력에서 한글이나 이모지가 깨져 보여도, 실제 UTF-8 파일 손상과는 별개일 수 있음
-- 최근 회귀 포인트: 로깅 `op_id` 충돌, frozen 모델 다운로드 초기화, `Pillow`/`scikit-learn`/`sentence_transformers` import 검증
+- 최근 회귀 포인트: 로깅 `op_id` 충돌, frozen 모델 다운로드 초기화, `Pillow`/`scikit-learn`/`sentence_transformers` import 검증, text/vector cache schema v3, same-model fast reload, lazy `charset_normalizer` fallback
 
 ---
 
@@ -108,6 +113,7 @@ pyinstaller "사내 규정검색기 v9 PyQt6.spec"
 
 - onefile EXE는 `sys.executable -c` 서브프로세스 대신 in-process 다운로드 경로를 사용
 - `transformers`가 `PIL.Image`를 모듈 초기화 시 참조하므로, 경량화 시 `Pillow` 제외 금지
+- `charset_normalizer`는 `FileUtils.safe_read()`의 fallback 경로에서 동적 import되므로, spec에서 hidden import 유지 필요
 - 모델 다운로드 완료 여부는 `models/models--<org>--<name>/{blobs,snapshots}` 캐시 구조 기준으로 판별
 - 현재 onefile 크기는 `torch` / `faiss` / `PyQt6` 포함으로 인해 약 300MB 수준
 
@@ -122,7 +128,11 @@ pyinstaller "사내 규정검색기 v9 PyQt6.spec"
   - `bookmarks.json`
   - `recent_folders.json`
   - `search_log.json`
+  - `model_inventory.json`
   - `logs/`, `models/`
+- 텍스트/벡터 캐시는 사용자 설정 경로가 아니라 시스템 임시 경로 하위의 `reg_qa_v93/` 아래에 저장
+  - `text/<folder_hash>/text_cache.sqlite`
+  - `vector/<folder_hash>/<model_hash>/`
 
 ---
 

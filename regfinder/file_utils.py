@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import importlib
 import os
 import platform
 import subprocess
-from typing import Dict, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
-import charset_normalizer
-
+from .app_types import DiscoveredFile
 from .runtime import logger
 
 class FileUtils:
@@ -16,23 +16,19 @@ class FileUtils:
         try:
             with open(path, 'rb') as f:
                 raw_data = f.read()
-            
-            # 1. charset_normalizer를 통한 정밀 감지
+
+            for enc in ('utf-8', 'cp949', 'euc-kr'):
+                try:
+                    return raw_data.decode(enc), None
+                except UnicodeDecodeError:
+                    continue
+
+            charset_normalizer = importlib.import_module("charset_normalizer")
             res = charset_normalizer.from_bytes(raw_data).best()
-            if res and res.encoding:
-                encoding = res.encoding
-                confidence = float(res.coherence or 0.0)
-            else:
-                encoding, confidence = 'utf-8', 0
-                
-            # 2. 신뢰도가 낮을 경우 한글 환경Fallback
-            if confidence < 0.5:
-                for enc in ['utf-8', 'cp949', 'euc-kr']:
-                    try:
-                        return raw_data.decode(enc), None
-                    except UnicodeDecodeError:
-                        continue
-            return raw_data.decode(encoding, errors='ignore'), None
+            if res and getattr(res, "encoding", None):
+                encoding = str(res.encoding)
+                return raw_data.decode(encoding, errors='ignore'), None
+            return raw_data.decode('utf-8', errors='ignore'), None
         except Exception as e:
             logger.exception(f"파일 읽기 오류: {path}")
             return "", str(e)
@@ -66,3 +62,58 @@ class FileUtils:
                 return f"{size_value:.1f}{unit}"
             size_value /= 1024
         return f"{size_value:.1f}TB"
+
+    @staticmethod
+    def build_discovered_file(folder: str, path: str, *, stat_result: os.stat_result | None = None) -> DiscoveredFile:
+        root = os.path.normpath(os.path.abspath(folder))
+        absolute_path = os.path.normpath(os.path.abspath(path))
+        stat_result = stat_result or os.stat(absolute_path)
+        rel_path = os.path.relpath(absolute_path, root).replace("\\", "/")
+        name = os.path.basename(absolute_path)
+        extension = os.path.splitext(name)[1].lower()
+        return DiscoveredFile(
+            path=absolute_path,
+            rel_path=rel_path,
+            name=name,
+            extension=extension,
+            size=int(stat_result.st_size),
+            mtime=float(stat_result.st_mtime),
+            file_key=rel_path,
+        )
+
+    @staticmethod
+    def discover_files(
+        folder: str,
+        *,
+        recursive: bool,
+        supported_extensions: Iterable[str],
+    ) -> List[DiscoveredFile]:
+        root = os.path.normpath(os.path.abspath(folder))
+        extensions = {str(ext).lower() for ext in supported_extensions}
+        discovered: List[DiscoveredFile] = []
+
+        def _scan(directory: str) -> None:
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            if recursive:
+                                _scan(entry.path)
+                            continue
+                        if not entry.is_file(follow_symlinks=False):
+                            continue
+                        extension = os.path.splitext(entry.name)[1].lower()
+                        if extension not in extensions:
+                            continue
+                        stat_result = entry.stat(follow_symlinks=False)
+                        discovered.append(
+                            FileUtils.build_discovered_file(root, entry.path, stat_result=stat_result)
+                        )
+                    except PermissionError:
+                        raise
+                    except OSError as exc:
+                        logger.debug(f"파일 탐색 중 항목 건너뜀: {entry.path} - {exc}")
+
+        _scan(root)
+        discovered.sort(key=lambda item: item.rel_path.lower())
+        return discovered

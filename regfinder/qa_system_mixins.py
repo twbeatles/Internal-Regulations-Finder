@@ -11,6 +11,8 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
 from .app_types import AppConfig, TaskResult
+from .model_inventory import ModelInventory
+from .text_cache import TextCacheStore
 from .runtime import (
     _import_module,
     get_config_path,
@@ -35,6 +37,7 @@ class RegulationQADiagnosticsMixin:
         self = _as_qa(self)
         try:
             frozen = bool(getattr(sys, "frozen", False))
+            model_inventory = ModelInventory().snapshot()
             env = {
                 "app_name": AppConfig.APP_NAME,
                 "app_version": AppConfig.APP_VERSION,
@@ -48,6 +51,8 @@ class RegulationQADiagnosticsMixin:
                 "current_folder": self.current_folder,
                 "vector_id_mode": self._vector_id_mode,
                 "cache_schema_version": getattr(self, "CACHE_SCHEMA_VERSION", None),
+                "text_cache_path": self.current_text_cache_path,
+                "vector_cache_dir": self.current_vector_cache_dir,
             }
 
             try:
@@ -59,30 +64,46 @@ class RegulationQADiagnosticsMixin:
             cache_summary: Dict[str, Any] = {"available": False}
             try:
                 if self.model_id and self.current_folder and os.path.isdir(self.current_folder):
-                    cache_dir = self.get_cache_dir_for_folder(self.current_folder)
-                    cache_info_path = os.path.join(cache_dir, "cache_info.json")
-                    if os.path.exists(cache_info_path):
-                        with open(cache_info_path, "r", encoding="utf-8") as f:
-                            ci = json.load(f) or {}
-                        files = ci.get("files") if isinstance(ci, dict) else None
-                        if isinstance(files, dict):
-                            total_chunks = sum(int(v.get("chunks", 0) or 0) for v in files.values() if isinstance(v, dict))
-                            cache_summary = {
-                                "available": True,
-                                "cache_dir": cache_dir,
-                                "schema_version": ci.get("schema_version"),
-                                "vector_id_mode": ci.get("vector_id_mode"),
-                                "files": len(files),
-                                "total_chunks": total_chunks,
-                                "cache_info_mtime": os.path.getmtime(cache_info_path),
-                            }
+                    text_cache = TextCacheStore(self._get_text_cache_path(self.current_folder), self.CACHE_SCHEMA_VERSION)
+                    text_snapshot = text_cache.snapshot()
+                    vector_cache_dir = self.get_cache_dir_for_folder(self.current_folder)
+                    vector_meta_path = os.path.join(vector_cache_dir, "vector_meta.json")
+                    vector_meta = {}
+                    if os.path.exists(vector_meta_path):
+                        with open(vector_meta_path, "r", encoding="utf-8") as f:
+                            vector_meta = json.load(f) or {}
+                    cache_summary = {
+                        "available": True,
+                        "text_cache_path": text_snapshot.sqlite_path,
+                        "text_cache_revision": text_snapshot.revision,
+                        "vector_cache_dir": vector_cache_dir,
+                        "schema_version": text_snapshot.schema_version,
+                        "vector_id_mode": vector_meta.get("vector_id_mode"),
+                        "files": text_snapshot.cached_files,
+                        "total_chunks": text_snapshot.cached_chunks,
+                        "updated_at": text_snapshot.updated_at,
+                    }
             except Exception as e:
                 cache_summary = {"available": False, "error": str(e)}
 
             with self._diagnostics_lock:
                 last_op = dict(self.last_op or {})
 
-            return {"environment": env, "cache_summary": cache_summary, "last_op": last_op}
+            return {
+                "environment": env,
+                "cache_summary": cache_summary,
+                "last_op": last_op,
+                "last_search_stats": {
+                    "elapsed_ms": self.last_search_stats.elapsed_ms,
+                    "vector_fetch_k": self.last_search_stats.vector_fetch_k,
+                    "bm25_candidates": self.last_search_stats.bm25_candidates,
+                    "filtered_out": self.last_search_stats.filtered_out,
+                    "result_count": self.last_search_stats.result_count,
+                    "query_len": self.last_search_stats.query_len,
+                    "filters": dict(self.last_search_stats.filters),
+                },
+                "model_inventory": model_inventory,
+            }
         except Exception:
             return {"error": traceback.format_exc()}
 
@@ -125,7 +146,8 @@ class RegulationQADiagnosticsMixin:
                 try:
                     if self.model_id and self.current_folder and os.path.isdir(self.current_folder):
                         cache_dir = self._get_cache_dir(self.current_folder)
-                        _try_add_file(zf, "cache/cache_info.json", os.path.join(cache_dir, "cache_info.json"))
+                        _try_add_file(zf, "cache/vector_meta.json", os.path.join(cache_dir, "vector_meta.json"))
+                        _try_add_file(zf, "cache/text_cache.sqlite", self._get_text_cache_path(self.current_folder))
                 except Exception as e:
                     manifest["items"].append({"type": "cache", "ok": False, "error": str(e)})
 
@@ -148,8 +170,13 @@ class RegulationQADiagnosticsMixin:
 
     def get_cache_usage_bytes(self) -> int:
         self = _as_qa(self)
+        return int(self._cache_usage_bytes_snapshot)
+
+    def refresh_cache_usage_bytes(self) -> int:
+        self = _as_qa(self)
         total = 0
         if not os.path.exists(self.cache_path):
+            self._cache_usage_bytes_snapshot = 0
             return 0
         for dirpath, _, filenames in os.walk(self.cache_path):
             for name in filenames:
@@ -158,6 +185,7 @@ class RegulationQADiagnosticsMixin:
                     total += os.path.getsize(fp)
                 except OSError:
                     continue
+        self._cache_usage_bytes_snapshot = total
         return total
 
     def get_last_operation(self) -> Dict[str, Any]:
@@ -173,22 +201,27 @@ class RegulationQADiagnosticsMixin:
             "documents": len(self.documents),
             "file_infos": len(self.file_infos),
             "model_id": self.model_id or "",
+            "text_cache_revision": self.text_cache_revision,
         }
         target = folder or self.current_folder
         if not (target and os.path.isdir(target) and self.model_id):
             return data
         try:
             cache_dir = self._get_cache_dir(target)
+            text_cache = TextCacheStore(self._get_text_cache_path(target), self.CACHE_SCHEMA_VERSION)
+            snapshot = text_cache.snapshot()
             data["cache_dir"] = cache_dir
-            ci_path = os.path.join(cache_dir, "cache_info.json")
-            if os.path.exists(ci_path):
-                with open(ci_path, "r", encoding="utf-8") as f:
-                    ci = json.load(f) or {}
-                files = ci.get("files", {}) if isinstance(ci, dict) else {}
-                data["schema_version"] = ci.get("schema_version")
-                data["cached_files"] = len(files) if isinstance(files, dict) else 0
-                if isinstance(files, dict):
-                    data["cached_chunks"] = sum(int((v or {}).get("chunks", 0) or 0) for v in files.values())
+            data["text_cache_path"] = snapshot.sqlite_path
+            data["schema_version"] = snapshot.schema_version
+            data["cached_files"] = snapshot.cached_files
+            data["cached_chunks"] = snapshot.cached_chunks
+            data["text_cache_revision"] = snapshot.revision
+            vector_meta_path = os.path.join(cache_dir, "vector_meta.json")
+            if os.path.exists(vector_meta_path):
+                with open(vector_meta_path, "r", encoding="utf-8") as f:
+                    vector_meta = json.load(f) or {}
+                data["vector_meta_revision"] = vector_meta.get("text_cache_revision")
+                data["vector_id_mode"] = vector_meta.get("vector_id_mode")
         except Exception as e:
             data["error"] = str(e)
         return data

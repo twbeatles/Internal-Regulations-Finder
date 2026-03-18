@@ -63,6 +63,7 @@ search_history.json
 bookmarks.json
 recent_folders.json
 search_log.json
+model_inventory.json
 
 # Runtime exports / local state
 *.db

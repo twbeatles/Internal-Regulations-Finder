@@ -232,14 +232,14 @@ class MainWindowInsightsMixin:
         if isinstance(idx, int):
             self.bookmarks.remove(idx)
             self._refresh_bookmarks_table()
-            self._refresh_diagnostics_view()
+            self._schedule_diagnostics_refresh()
 
     def _clear_bookmarks(self) -> None:
         self = _as_window(self)
         if QMessageBox.question(self, "확인", "북마크를 모두 삭제하시겠습니까?") == QMessageBox.StandardButton.Yes:
             self.bookmarks.clear()
             self._refresh_bookmarks_table()
-            self._refresh_diagnostics_view()
+            self._schedule_diagnostics_refresh()
             self._show_status("✅ 북마크 삭제됨", "#10b981", 2000)
 
     def _export_bookmarks(self) -> None:
@@ -288,6 +288,7 @@ class MainWindowInsightsMixin:
             self.recents.clear()
             self.recent_btn.setEnabled(False)
             self._save_config()
+            self._schedule_diagnostics_refresh()
             self._show_status("✅ 최근 폴더 삭제됨", "#10b981", 2000)
 
     def _refresh_diagnostics_view(self) -> None:
@@ -297,10 +298,25 @@ class MainWindowInsightsMixin:
         diag = self.qa.collect_diagnostics()
         index_status = self.qa.get_index_status(self.last_folder if self.last_folder and os.path.isdir(self.last_folder) else None)
         search_summary = self.search_logs.summary()
+        last_search_stats = diag.get("last_search_stats", {}) if isinstance(diag, dict) else {}
+        model_inventory = diag.get("model_inventory", {}) if isinstance(diag, dict) else {}
 
         lines = []
         lines.append("[Index Status]")
-        for k in ["cache_root", "cache_dir", "schema_version", "cached_files", "cached_chunks", "vector_loaded", "documents", "file_infos", "model_id"]:
+        for k in [
+            "cache_root",
+            "cache_dir",
+            "text_cache_path",
+            "schema_version",
+            "text_cache_revision",
+            "vector_meta_revision",
+            "cached_files",
+            "cached_chunks",
+            "vector_loaded",
+            "documents",
+            "file_infos",
+            "model_id",
+        ]:
             if k in index_status:
                 lines.append(f"- {k}: {index_status.get(k)}")
         if index_status.get("error"):
@@ -319,6 +335,15 @@ class MainWindowInsightsMixin:
                 lines.append(f"  - {item.get('query')}: {item.get('count')}")
 
         lines.append("")
+        lines.append("[Last Search Stats]")
+        if isinstance(last_search_stats, dict) and last_search_stats:
+            for k in ["elapsed_ms", "vector_fetch_k", "bm25_candidates", "filtered_out", "result_count", "query_len"]:
+                if k in last_search_stats:
+                    lines.append(f"- {k}: {last_search_stats.get(k)}")
+        else:
+            lines.append("- none")
+
+        lines.append("")
         lines.append("[Last Operation]")
         last_op = diag.get("last_op", {}) if isinstance(diag, dict) else {}
         if isinstance(last_op, dict) and last_op:
@@ -335,16 +360,30 @@ class MainWindowInsightsMixin:
                 if k in env:
                     lines.append(f"- {k}: {env.get(k)}")
 
+        lines.append("")
+        lines.append("[Model Inventory]")
+        if isinstance(model_inventory, dict) and model_inventory:
+            for name, state in model_inventory.items():
+                if not isinstance(state, dict):
+                    continue
+                status = "done" if state.get("downloaded") else "online"
+                size_bytes = int(state.get("size_bytes", 0) or 0)
+                lines.append(f"- {name}: {status} ({FileUtils.format_size(size_bytes)})")
+        else:
+            lines.append("- none")
+
         text = "\n".join(lines)
         self.diag_summary_label.setText(
             f"🧰 인덱스/로그 상태 | 검색 {search_summary.get('total', 0)}회 | 북마크 {len(self.bookmarks.items)}개"
         )
         self.diagnostics_text.setPlainText(text)
 
-    def _update_cache_size_display(self) -> None:
+    def _update_cache_size_display(self, *, refresh_async: bool = True) -> None:
         self = _as_window(self)
         total_size = self.qa.get_cache_usage_bytes()
         self.cache_size_label.setText(f"💾 캐시 사용량: {FileUtils.format_size(total_size)}")
+        if refresh_async:
+            self._request_cache_usage_refresh()
 
     def _update_internal_state_display(self) -> None:
         self = _as_window(self)
@@ -356,11 +395,14 @@ class MainWindowInsightsMixin:
         cache_root = self.qa.get_cache_root()
 
         current_cache_dir = ""
+        current_text_cache = ""
         if self.last_folder and os.path.isdir(self.last_folder):
             try:
                 current_cache_dir = self.qa.get_cache_dir_for_folder(self.last_folder)
+                current_text_cache = self.qa._get_text_cache_path(self.last_folder)
             except Exception:
                 current_cache_dir = ""
+                current_text_cache = ""
 
         last_op = self.qa.get_last_operation() or {}
         last_op_id = last_op.get("op_id", "")
@@ -377,22 +419,18 @@ class MainWindowInsightsMixin:
         ]
         if current_cache_dir:
             lines.append(f"📌 current cache: {current_cache_dir}")
+        if current_text_cache:
+            lines.append(f"📌 text cache: {current_text_cache}")
             try:
-                ci_path = os.path.join(current_cache_dir, "cache_info.json")
-                if os.path.exists(ci_path):
-                    with open(ci_path, "r", encoding="utf-8") as f:
-                        ci = json.load(f)
-                    schema = ci.get("schema_version", "")
-                    files = ci.get("files", {}) or {}
-                    total_files = len(files)
-                    total_chunks = 0
-                    for v in files.values():
-                        try:
-                            total_chunks += int((v or {}).get("chunks", 0))
-                        except (TypeError, ValueError):
-                            pass
-                    if schema:
-                        lines.append(f"📌 cache schema: v{schema}, files: {total_files}, chunks: {total_chunks}")
+                index_status = self.qa.get_index_status(self.last_folder)
+                schema = index_status.get("schema_version", "")
+                total_files = index_status.get("cached_files", 0)
+                total_chunks = index_status.get("cached_chunks", 0)
+                revision = index_status.get("text_cache_revision", 0)
+                if schema:
+                    lines.append(
+                        f"📌 cache schema: v{schema}, rev: {revision}, files: {total_files}, chunks: {total_chunks}"
+                    )
             except Exception:
                 pass
         if last_op_id:

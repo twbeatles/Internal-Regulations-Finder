@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from collections import Counter
 from datetime import datetime
 from typing import Any, Dict, List
@@ -31,11 +32,45 @@ def _safe_write_json(path: str, data: Any):
         logger.warning(f"JSON 저장 실패: {path} - {e}")
 
 
+class _DebouncedJsonWriter:
+    def __init__(self, path: str, delay_seconds: float) -> None:
+        self.path = path
+        self.delay_seconds = max(0.0, float(delay_seconds))
+        self._lock = threading.Lock()
+        self._timer: threading.Timer | None = None
+        self._pending: Any = None
+
+    def schedule(self, data: Any) -> None:
+        if self.delay_seconds <= 0:
+            _safe_write_json(self.path, data)
+            return
+        with self._lock:
+            self._pending = data
+            if self._timer is not None:
+                self._timer.cancel()
+            timer = threading.Timer(self.delay_seconds, self.flush)
+            timer.daemon = True
+            self._timer = timer
+            timer.start()
+
+    def flush(self) -> None:
+        with self._lock:
+            data = self._pending
+            timer = self._timer
+            self._pending = None
+            self._timer = None
+        if timer is not None:
+            timer.cancel()
+        if data is not None:
+            _safe_write_json(self.path, data)
+
+
 class ConfigManager:
     """설정 로드/저장 + 스키마 마이그레이션(v1 -> v2)."""
 
     def __init__(self):
         self.path = get_config_path()
+        self._writer = _DebouncedJsonWriter(self.path, 0.2)
 
     @staticmethod
     def defaults() -> Dict[str, Any]:
@@ -99,14 +134,18 @@ class ConfigManager:
         if not isinstance(recents, list):
             recents = []
         payload["recent_folders"] = [x for x in recents if isinstance(x, str) and x][:AppConfig.MAX_RECENT_FOLDERS]
-        _safe_write_json(self.path, payload)
+        self._writer.schedule(payload)
+
+    def flush(self) -> None:
+        self._writer.flush()
 
 
 class JsonListStore:
-    def __init__(self, filename: str, max_items: int):
+    def __init__(self, filename: str, max_items: int, *, save_delay_seconds: float = 0.0):
         self.path = os.path.join(get_data_directory(), filename)
         self.max_items = max_items
         self.items: List[Dict[str, Any]] = []
+        self._writer = _DebouncedJsonWriter(self.path, save_delay_seconds)
         self._load()
 
     def _load(self):
@@ -117,11 +156,14 @@ class JsonListStore:
             self.items = []
 
     def _save(self):
-        _safe_write_json(self.path, self.items[: self.max_items])
+        self._writer.schedule(self.items[: self.max_items])
 
     def clear(self):
         self.items = []
         self._save()
+
+    def flush(self):
+        self._writer.flush()
 
 
 class BookmarkStore(JsonListStore):
@@ -191,7 +233,7 @@ class RecentFoldersStore:
 
 class SearchLogStore(JsonListStore):
     def __init__(self):
-        super().__init__(AppConfig.SEARCH_LOG_FILE, AppConfig.MAX_SEARCH_LOGS)
+        super().__init__(AppConfig.SEARCH_LOG_FILE, AppConfig.MAX_SEARCH_LOGS, save_delay_seconds=0.25)
 
     def add(self, query: str, elapsed_ms: int, result_count: int, success: bool, error_code: str = ""):
         entry = {

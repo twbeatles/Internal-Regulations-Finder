@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 from datetime import datetime
 
 from PyQt6.QtCore import QTimer, Qt
@@ -25,8 +24,9 @@ from PyQt6.QtWidgets import (
 
 from .app_types import AppConfig, FileStatus, ModelDownloadStateMap, TaskResult
 from .file_utils import FileUtils
+from .model_inventory import ModelInventory
 from .qa_system import RegulationQASystem
-from .runtime import get_model_cache_path, get_models_directory, is_model_downloaded, logger
+from .runtime import get_models_directory, logger
 from .persistence import BookmarkStore, ConfigManager, RecentFoldersStore, SearchLogStore
 from .main_window_ui_mixin import MainWindowUIBuilderMixin
 from .main_window_mixins import MainWindowConfigMixin, MainWindowInsightsMixin
@@ -38,7 +38,13 @@ from .ui_components import (
 )
 from .ui_style import ui_font
 from .worker_registry import WorkerRegistry
-from .workers import DocumentProcessorThread, ModelDownloadThread, ModelLoaderThread, SearchThread
+from .workers import (
+    CacheUsageRefreshThread,
+    DocumentProcessorThread,
+    ModelDownloadThread,
+    ModelLoaderThread,
+    SearchThread,
+)
 
 class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowConfigMixin, QMainWindow):
 
@@ -50,6 +56,7 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         self.bookmarks = BookmarkStore()
         self.recents = RecentFoldersStore()
         self.search_logs = SearchLogStore()
+        self.model_inventory = ModelInventory()
         self.workers = WorkerRegistry()
         self.last_folder = ""
         self.model_name = AppConfig.DEFAULT_MODEL
@@ -63,12 +70,42 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         self._load_config()
         self._init_ui()
         self._update_internal_state_display()
-        self._refresh_diagnostics_view()
+        self._schedule_diagnostics_refresh()
         QTimer.singleShot(100, self._load_model)
 
     def _set_search_controls_enabled(self, enabled: bool) -> None:
         self.search_input.setEnabled(enabled)
         self.search_btn.setEnabled(enabled)
+
+    def _schedule_diagnostics_refresh(self, delay_ms: int = 120) -> None:
+        existing = getattr(self, "_diagnostics_refresh_timer", None)
+        if existing is None:
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.timeout.connect(self._refresh_diagnostics_view)
+            self._diagnostics_refresh_timer = timer
+        self._diagnostics_refresh_timer.start(delay_ms)
+
+    def _refresh_model_inventory(self, *, force: bool = False) -> ModelDownloadStateMap:
+        states = self.model_inventory.refresh(force=force)
+        self._model_states_snapshot = states
+        return states
+
+    def _request_cache_usage_refresh(self) -> None:
+        if self.workers.is_running("cache_usage"):
+            return
+        worker = CacheUsageRefreshThread(self.qa)
+        worker.finished.connect(self._on_cache_usage_refresh_done)
+        worker.finished.connect(lambda *_: self.workers.clear("cache_usage"))
+        worker.finished.connect(lambda *_: worker.deleteLater())
+        self.workers.set("cache_usage", worker)
+        worker.start()
+
+    def _on_cache_usage_refresh_done(self, result) -> None:
+        if not result.success or not hasattr(self, "cache_size_label"):
+            return
+        usage_bytes = int((result.data or {}).get("usage_bytes", 0) or 0)
+        self.cache_size_label.setText(f"💾 캐시 사용량: {FileUtils.format_size(usage_bytes)}")
     
     def _load_model(self):
         if self.workers.is_running("model"):
@@ -91,13 +128,13 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             if any(os.path.isdir(p) for p in self.recents.get()):
                 self.recent_btn.setEnabled(True)
             self._update_internal_state_display()
-            self._refresh_diagnostics_view()
+            self._schedule_diagnostics_refresh()
         else:
             self.status_label.setText(f"❌ {result.message}")
             self.status_label.setStyleSheet("color: #ef4444;")
             self._set_search_controls_enabled(False)
             self._update_internal_state_display()
-            self._refresh_diagnostics_view()
+            self._schedule_diagnostics_refresh()
             self._show_task_error("모델 로드 오류", result)
     
     def _open_folder(self):
@@ -140,8 +177,7 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
     def _refresh(self):
         if self.last_folder:
             try:
-                cache = self.qa.get_cache_dir_for_folder(self.last_folder)
-                shutil.rmtree(cache, ignore_errors=True)
+                self.qa.clear_folder_cache(self.last_folder)
             except Exception:
                 pass
             self._load_folder(self.last_folder)
@@ -152,13 +188,7 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             self, "확인",
             "모델을 변경하면 현재 로드된 문서 인덱스가 초기화됩니다.\n계속하시겠습니까?"
         ) == QMessageBox.StandardButton.Yes:
-            # 기존 인덱스 초기화
-            self.qa.vector_store = None
-            self.qa.documents.clear()
-            self.qa.doc_meta.clear()
-            self.qa.doc_ids.clear()
-            if self.qa.bm25:
-                self.qa.bm25.clear()
+            self.qa.reset_runtime_state(reset_model=False)
             
             # UI 초기화
             self._set_search_controls_enabled(False)
@@ -182,17 +212,12 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         if self.workers.is_running("docs"):
             return
         try:
-            # 하위 폴더 포함 여부 확인
             recursive_enabled = self.recursive_check.isChecked() if hasattr(self, "recursive_check") else self.recursive
-            if recursive_enabled:
-                files = []
-                for root, _, filenames in os.walk(folder):
-                    for f in filenames:
-                        if os.path.splitext(f)[1].lower() in AppConfig.SUPPORTED_EXTENSIONS:
-                            files.append(os.path.join(root, f))
-            else:
-                files = [os.path.join(folder, f) for f in os.listdir(folder) 
-                         if os.path.splitext(f)[1].lower() in AppConfig.SUPPORTED_EXTENSIONS]
+            files = FileUtils.discover_files(
+                folder,
+                recursive=recursive_enabled,
+                supported_extensions=AppConfig.SUPPORTED_EXTENSIONS,
+            )
         except PermissionError:
             QMessageBox.critical(self, "오류", "폴더 접근 권한이 없습니다.")
             return
@@ -239,9 +264,9 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             self.refresh_btn.setEnabled(True)
             self.recent_btn.setEnabled(True)
             self._update_file_table()
-            self._update_cache_size_display()
+            self._update_cache_size_display(refresh_async=True)
             self._update_internal_state_display()
-            self._refresh_diagnostics_view()
+            self._schedule_diagnostics_refresh()
             self._show_empty_state("ready")
             
             # 상태 표시
@@ -261,7 +286,7 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         else:
             self._show_status(f"❌ {result.message}", "#ef4444")
             self._update_internal_state_display()
-            self._refresh_diagnostics_view()
+            self._schedule_diagnostics_refresh()
             self._show_task_error("문서 처리 오류", result)
     
     def _update_file_table(self):
@@ -367,7 +392,7 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             success=bool(result.success),
             error_code=getattr(result, "error_code", ""),
         )
-        self._refresh_diagnostics_view()
+        self._schedule_diagnostics_refresh()
         
         if not result.success:
             # UI에는 요약을 남기고, 상세(스택트레이스)는 다이얼로그로 제공
@@ -582,7 +607,7 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
 
         result = self.qa.export_diagnostics_zip(file_path)
         self._update_internal_state_display()
-        self._refresh_diagnostics_view()
+        self._schedule_diagnostics_refresh()
         if result.success:
             QMessageBox.information(self, "완료", f"✅ {result.message}\n\n{file_path}")
         else:
@@ -591,38 +616,21 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
     def _clear_cache(self):
         if QMessageBox.question(self, "확인", "캐시를 삭제하시겠습니까?") == QMessageBox.StandardButton.Yes:
             self.qa.clear_cache()
-            self._update_cache_size_display()  # 캐시 크기 업데이트
+            self._update_cache_size_display(refresh_async=False)
             self._update_internal_state_display()
-            self._refresh_diagnostics_view()
+            self._schedule_diagnostics_refresh()
             self._show_status("✅ 캐시 삭제됨", "#10b981", 3000)
     
     def _clear_history(self):
         if QMessageBox.question(self, "확인", "히스토리를 삭제하시겠습니까?") == QMessageBox.StandardButton.Yes:
             self.history.clear()
-            self._refresh_diagnostics_view()
+            self._schedule_diagnostics_refresh()
             self._show_status("✅ 히스토리 삭제됨", "#10b981", 3000)
     
-    def _get_model_download_states(self) -> ModelDownloadStateMap:
-        cache_dir = get_models_directory()
-        states: ModelDownloadStateMap = {}
-        for name, model_id in AppConfig.AVAILABLE_MODELS.items():
-            downloaded = is_model_downloaded(model_id, models_dir=cache_dir)
-            model_cache_path = get_model_cache_path(model_id, models_dir=cache_dir)
-            size_bytes = 0
-            if downloaded and os.path.isdir(model_cache_path):
-                for dirpath, _, filenames in os.walk(model_cache_path):
-                    for filename in filenames:
-                        try:
-                            size_bytes += os.path.getsize(os.path.join(dirpath, filename))
-                        except OSError as e:
-                            logger.debug(f"모델 크기 계산 실패(무시): {dirpath}\\{filename} - {e}")
-            states[name] = {
-                "model_id": model_id,
-                "downloaded": downloaded,
-                "size_bytes": size_bytes,
-                "cache_path": model_cache_path,
-            }
-        return states
+    def _get_model_download_states(self, *, force_refresh: bool = False) -> ModelDownloadStateMap:
+        if force_refresh or not hasattr(self, "_model_states_snapshot"):
+            return self._refresh_model_inventory(force=force_refresh)
+        return self._model_states_snapshot
 
     def _set_selected_model(self, model_name: str, *, save: bool = False) -> bool:
         if model_name not in AppConfig.AVAILABLE_MODELS:
@@ -636,7 +644,7 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
                 self.model_combo.setCurrentIndex(index)
                 self.model_combo.blockSignals(False)
         if hasattr(self, "model_combo"):
-            self._update_model_status()
+            self._update_model_status(states=self._get_model_download_states())
         if save:
             self._save_config()
         return True
@@ -658,11 +666,11 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             return False
         return self._set_selected_model(candidate_names[0], save=True)
 
-    def _refresh_model_selector(self) -> None:
+    def _refresh_model_selector(self, *, states: ModelDownloadStateMap | None = None, force_refresh: bool = False) -> None:
         if not hasattr(self, "model_combo"):
             return
 
-        states = self._get_model_download_states()
+        states = states or self._get_model_download_states(force_refresh=force_refresh)
         ordered_names = sorted(
             AppConfig.AVAILABLE_MODELS.keys(),
             key=lambda name: (
@@ -690,19 +698,19 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         current_name = self.model_combo.currentData()
         if isinstance(current_name, str) and current_name in AppConfig.AVAILABLE_MODELS:
             self.model_name = current_name
-        self._update_model_status()
+        self._update_model_status(states=states)
 
     def _on_model_selection_changed(self) -> None:
         selected_name = self.model_combo.currentData() if hasattr(self, "model_combo") else None
         if isinstance(selected_name, str) and selected_name in AppConfig.AVAILABLE_MODELS:
             self.model_name = selected_name
-            self._update_model_status()
+            self._update_model_status(states=self._get_model_download_states())
             self._save_config()
 
-    def _update_model_status(self):
+    def _update_model_status(self, *, states: ModelDownloadStateMap | None = None):
         """모델 다운로드 상태/선택 상태 업데이트"""
         cache_dir = get_models_directory()
-        states = self._get_model_download_states()
+        states = states or self._get_model_download_states()
         downloaded_names = [name for name, state in states.items() if state["downloaded"]]
         total_size = sum(state["size_bytes"] for state in states.values())
         total_models = len(AppConfig.AVAILABLE_MODELS)
@@ -755,7 +763,7 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             
             # 체크박스 생성
             checkboxes = {}
-            model_states = self._get_model_download_states()
+            model_states = self._get_model_download_states(force_refresh=True)
             for name, model_id in AppConfig.AVAILABLE_MODELS.items():
                 state = model_states[name]
                 downloaded = state["downloaded"]
@@ -828,11 +836,12 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         """모델 다운로드 완료 핸들러"""
         self.progress_dialog.close()
         self.progress_dialog.deleteLater()
-        
-        self._update_model_status()
-        self._refresh_model_selector()
+
+        states = self._refresh_model_inventory(force=True)
+        self._update_model_status(states=states)
+        self._refresh_model_selector(states=states)
         self._update_internal_state_display()
-        self._refresh_diagnostics_view()
+        self._schedule_diagnostics_refresh()
         
         if result.success:
             downloaded_names = list((result.data or {}).get("downloaded", []) or [])
@@ -862,6 +871,8 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             progress_dialog.close()
             progress_dialog.deleteLater()
         self._save_config()
+        self.config_manager.flush()
+        self.search_logs.flush()
         self.qa.cleanup()
         if a0 is not None:
             a0.accept()

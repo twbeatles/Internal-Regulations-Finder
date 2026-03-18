@@ -17,6 +17,8 @@
     `sentence_transformers` import 경로는 `transformers -> PIL.Image` 와
     `sentence_transformers -> sklearn.metrics` 체인을 타므로,
     경량화 시 `Pillow` / `scikit-learn` 제외 여부를 주의해야 합니다.
+    `FileUtils.safe_read()` 는 `charset_normalizer` 를 동적 import 하므로,
+    lazy fallback 경로가 EXE에서도 유지되도록 hiddenimports에 포함합니다.
     설정창 모델 다운로드 상태 표시는 `models--<org>--<name>/blobs,snapshots`
     Hugging Face 캐시 구조를 기준으로 판별합니다.
     `pyrightconfig.json`, `.editorconfig`, `.gitattributes`, `.vscode/settings.json`
@@ -32,6 +34,7 @@ block_cipher = None
 sentence_transformers_hiddenimports = collect_submodules('sentence_transformers')
 sentence_transformers_datas = collect_data_files('sentence_transformers')
 sentence_transformers_metadata = copy_metadata('sentence-transformers')
+charset_normalizer_hiddenimports = collect_submodules('charset_normalizer')
 sklearn_metadata = copy_metadata('scikit-learn')
 pillow_metadata = copy_metadata('pillow')
 
@@ -50,6 +53,8 @@ hiddenimports = [
     'regfinder.document_extractor',
     'regfinder.bm25',
     'regfinder.file_utils',
+    'regfinder.text_cache',
+    'regfinder.model_inventory',
     'regfinder.worker_registry',
     'regfinder.persistence',
     'regfinder.runtime',
@@ -77,12 +82,13 @@ hiddenimports = [
     'sklearn.metrics.pairwise',
     'PIL',
     'PIL.Image',
+    'charset_normalizer',
 
     # Document extraction
     'docx',
     'pypdf',
     'olefile',
-] + sentence_transformers_hiddenimports
+] + sentence_transformers_hiddenimports + charset_normalizer_hiddenimports
 
 excludes = [
     # Unused UI / analysis stacks

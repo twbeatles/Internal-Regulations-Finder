@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Any, Dict, List, TypeAlias, TypedDict
+from typing import Any, Dict, List, Optional, TypeAlias, TypedDict
 
 class AppConfig:
     APP_NAME = "사내 규정 검색기"
@@ -40,6 +40,7 @@ class AppConfig:
     BM25_WEIGHT = 0.3
     MAX_DOCS_IN_MEMORY = 5000
     BATCH_SIZE = 100
+    MAX_VECTOR_FETCH = 100
 
 
 class TaskStatus(Enum):
@@ -67,6 +68,35 @@ class ModelDownloadState(TypedDict):
 ModelDownloadStateMap: TypeAlias = Dict[str, ModelDownloadState]
 
 
+@dataclass(frozen=True)
+class DiscoveredFile:
+    path: str
+    rel_path: str
+    name: str
+    extension: str
+    size: int
+    mtime: float
+    file_key: str
+
+
+@dataclass
+class EmbeddingRuntimeState:
+    checked: bool = False
+    available: bool = False
+    error: str = ""
+
+
+@dataclass
+class SearchStats:
+    elapsed_ms: int = 0
+    vector_fetch_k: int = 0
+    bm25_candidates: int = 0
+    filtered_out: int = 0
+    result_count: int = 0
+    query_len: int = 0
+    filters: Dict[str, str] = field(default_factory=dict)
+
+
 @dataclass
 class TaskResult:
     success: bool
@@ -87,3 +117,13 @@ class FileInfo:
     status: FileStatus = FileStatus.PENDING
     chunks: int = 0
     error: str = ""
+
+
+@dataclass
+class TextCacheSnapshot:
+    schema_version: int
+    revision: int
+    cached_files: int
+    cached_chunks: int
+    sqlite_path: str
+    updated_at: Optional[str] = None

@@ -350,8 +350,9 @@ class MainWindowUIBuilderMixin:
         self.model_status_label = QLabel("")
         self.model_status_label.setStyleSheet("color: #888; font-size: 12px;")
         self.model_status_label.setWordWrap(True)
-        self._refresh_model_selector()
-        self._update_model_status()
+        model_states = self._get_model_download_states()
+        self._refresh_model_selector(states=model_states)
+        self._update_model_status(states=model_states)
         model_layout.addWidget(self.model_status_label)
 
         model_layout.addWidget(QLabel("⚠️ 모델 변경 시 기존 인덱스가 초기화됩니다. 다운로드 완료 모델은 목록 상단에 표시됩니다."))
@@ -376,7 +377,7 @@ class MainWindowUIBuilderMixin:
 
         self.cache_size_label = QLabel("")
         self.cache_size_label.setStyleSheet("color: #888; font-size: 12px;")
-        self._update_cache_size_display()
+        self._update_cache_size_display(refresh_async=True)
         data_layout.addWidget(self.cache_size_label)
 
         self.internal_state_label = QLabel("")

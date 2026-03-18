@@ -17,9 +17,11 @@
 - `regfinder/main_window.py`: 메인 이벤트 오케스트레이션
 - `regfinder/main_window_ui_mixin.py`: UI 빌더 메서드
 - `regfinder/main_window_mixins.py`: 설정/진단/북마크 보조 로직
-- `regfinder/qa_system.py`: 인덱싱/검색 코어
+- `regfinder/qa_system.py`: 인덱싱/검색/텍스트 캐시+벡터 캐시 코어
 - `regfinder/qa_system_mixins.py`: 진단/상태 API
 - `regfinder/persistence.py`: 설정 스키마 + JSON 저장소
+- `regfinder/text_cache.py`: 텍스트 캐시(SQLite)
+- `regfinder/model_inventory.py`: 다운로드 모델 상태/용량 캐시
 - `regfinder/worker_registry.py`: 작업별 워커 관리
 
 ### 테스트
@@ -31,6 +33,7 @@
 - `tests/test_file_utils.py`
 - `tests/test_model_download_thread.py`
 - `tests/test_persistence.py`
+- `tests/test_performance_refactor.py`
 - `tests/test_repo_text_encoding.py`
 - `tests/test_qa_state_reset.py`
 - `tests/test_runtime_logging.py`
@@ -98,10 +101,13 @@
 `사내 규정검색기 v9 PyQt6.spec`에 신규 모듈 hiddenimports 반영 필요가 있었고 반영 완료:
 
 - `regfinder.persistence`
+- `regfinder.text_cache`
+- `regfinder.model_inventory`
 - `regfinder.worker_registry`
 - `regfinder.main_window_ui_mixin`
 - `regfinder.main_window_mixins`
 - `regfinder.qa_system_mixins`
+- `charset_normalizer` hiddenimports
 
 추가 정렬 사항:
 
@@ -128,13 +134,19 @@
 6. Pylance/UTF-8 회귀 방지
    - `ModelDownloadState` 타입 계약 도입으로 모델 다운로드 상태 접근 강타입화
    - `tests/test_repo_text_encoding.py`로 추적 텍스트 파일 UTF-8 디코딩 및 replacement char 회귀 검증
+7. 성능 리팩토링 반영
+   - 캐시 스키마 `v3`로 상향
+   - 텍스트 캐시(`text_cache.sqlite`)와 모델별 벡터 캐시 분리
+   - `BM25Light` → posting 기반 `BM25Index`
+   - `FileUtils.safe_read()` fast path + lazy `charset_normalizer` fallback
+   - 모델 인벤토리 캐시(`model_inventory.json`)와 background 캐시 사용량 갱신
 
 ---
 
 ## 6) 문서/정합성 기준
 
 - `README.md`, `claude.md`, `gemini.md`, `docs/*.md`는 현재 코드 구조와 검증 명령을 기준으로 유지
-- 기본 검증 게이트는 `pyright .`, `python tools/smoke_refactor.py`, `python -m pytest -q`
+- 기본 검증 게이트는 `pyright .`, `python tools/smoke_refactor.py`, `python tools/benchmark_performance.py`, `python -m pytest -q`
 - 추적 텍스트 파일은 `UTF-8(no BOM)` 기준 유지
 - Windows PowerShell/Python 출력의 표시 깨짐은 실제 저장소 인코딩 손상과 구분해서 확인
 
@@ -143,5 +155,5 @@
 ## 7) 권장 후속 작업
 
 1. E2E UI 테스트(Playwright/PyQt 자동화) 추가
-2. 검색/인덱싱 성능 벤치마크 스크립트 추가
+2. `tools/benchmark_performance.py --folder ...` 실측 baseline 수집 및 CI 보관
 3. `main_window.py`의 나머지 이벤트 핸들러도 단계 분리 검토

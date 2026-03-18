@@ -12,7 +12,14 @@ from typing import Any, Dict, List, Optional, Tuple
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from .app_types import AppConfig, TaskResult
-from .runtime import _import_attr, _import_module, get_models_directory, get_op_logger, new_op_id
+from .runtime import (
+    _import_attr,
+    _import_module,
+    get_models_directory,
+    get_op_logger,
+    new_op_id,
+    validate_embedding_runtime,
+)
 
 class BaseWorkerThread(QThread):
     """작업 스레드 공통 베이스: op_id/취소/예외->TaskResult 변환."""
@@ -117,18 +124,7 @@ class ModelDownloadThread(BaseWorkerThread):
         )
 
     def _validate_embedding_runtime(self):
-        try:
-            _import_module("PIL.Image")
-        except Exception as e:
-            raise ImportError(f"Pillow import 실패: {e}") from e
-        try:
-            _import_module("sklearn.metrics.pairwise")
-        except Exception as e:
-            raise ImportError(f"scikit-learn import 실패: {e}") from e
-        try:
-            _import_module("sentence_transformers")
-        except Exception as e:
-            raise ImportError(f"sentence_transformers import 실패: {e}") from e
+        validate_embedding_runtime(_import_module)
     
     def run(self):
         try:
@@ -259,4 +255,20 @@ class SearchThread(BaseWorkerThread):
             )
         except Exception:
             result = self._fail("검색 중 오류가 발생했습니다", "SEARCH_FAIL")
+        self.finished.emit(result)
+
+
+class CacheUsageRefreshThread(BaseWorkerThread):
+    finished = pyqtSignal(object)
+
+    def __init__(self, qa):
+        super().__init__("CACHE")
+        self.qa = qa
+
+    def run(self):
+        try:
+            usage_bytes = self.qa.refresh_cache_usage_bytes()
+            result = TaskResult(True, "캐시 사용량 갱신", {"usage_bytes": usage_bytes}, op_id=self.op_id)
+        except Exception:
+            result = self._fail("캐시 사용량 갱신 중 오류가 발생했습니다", "CACHE_USAGE_FAIL")
         self.finished.emit(result)

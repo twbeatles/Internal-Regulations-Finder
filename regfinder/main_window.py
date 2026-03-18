@@ -63,6 +63,7 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         self.font_size = AppConfig.DEFAULT_FONT_SIZE
         self.hybrid = True
         self.recursive = False
+        self.keep_search_text = True
         self.sort_by = "score_desc"
         self.search_filters = {"extension": "", "filename": "", "path": ""}
         self.status_timer = None  # 상태 레이블 타이머 관리
@@ -268,11 +269,31 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             self._update_internal_state_display()
             self._schedule_diagnostics_refresh()
             self._show_empty_state("ready")
-            
-            # 상태 표시
-            self._show_status(f"✅ {result.message} (청크: {result.data.get('chunks', 0)})", "#10b981")
+
+            data = result.data or {}
+            chunks = int(data.get("chunks", 0) or 0)
+            search_mode = str(data.get("search_mode", "") or "")
+            vector_ready = bool(data.get("vector_ready", False))
+            memory_warning = bool(data.get("memory_warning", False))
+
+            status_color = "#10b981"
+            status_message = f"✅ {result.message} (청크: {chunks})"
+            notices: list[str] = []
+            if search_mode == "bm25_only" and chunks > 0 and not vector_ready:
+                status_color = "#f59e0b"
+                status_message = f"⚠️ {result.message} (키워드 검색만 가능, 청크: {chunks})"
+                notices.append("벡터 인덱스 생성에 실패해 현재는 키워드 검색만 사용할 수 있습니다.")
+            if memory_warning:
+                status_color = "#f59e0b"
+                notices.append(
+                    f"대규모 인덱스 경고: 현재 청크 수 {int(data.get('memory_warning_chunks', chunks) or chunks)}개로 메모리 사용량이 커질 수 있습니다."
+                )
+            self._show_status(status_message, status_color)
             self.search_input.setFocus()
-            
+
+            if notices:
+                QMessageBox.warning(self, "검색 인덱스 상태", "\n\n".join(notices))
+
             # 처리 실패 파일이 있으면 알림
             if result.failed_items:
                 failed_count = len(result.failed_items)
@@ -401,15 +422,20 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             err.setStyleSheet("color: #ef4444;")
             err.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.result_layout.addWidget(err)
+            self.search_input.setFocus()
             return
         
         if not result.data:
             self._show_empty_state("no_results")
+            if not self.keep_search_text:
+                self.search_input.clear()
+            self.search_input.setFocus()
             return
         
         self.history.add(query)
         self.last_search_results = result.data  # 내보내기용 저장
         self.last_search_query = query
+        search_mode = getattr(self.qa.last_search_stats, "search_mode", "")
         
         # 결과 헤더 (검색어 + 통계 + 내보내기 버튼)
         header_frame = QFrame()
@@ -425,6 +451,16 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         time_label = QLabel(f"⏱ {search_time:.2f}초")
         time_label.setStyleSheet("color: #888; font-size: 11px;")
         header_layout.addWidget(time_label)
+
+        if search_mode:
+            mode_map = {
+                "hybrid": "하이브리드",
+                "vector_only": "벡터",
+                "bm25_only": "키워드",
+            }
+            mode_label = QLabel(f"모드: {mode_map.get(search_mode, search_mode)}")
+            mode_label.setStyleSheet("color: #9fb3c8; font-size: 11px;")
+            header_layout.addWidget(mode_label)
         
         header_layout.addStretch()
         
@@ -442,8 +478,9 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             card = ResultCard(i, item, self._copy_text, self._add_bookmark, self.font_size, query)
             self.result_layout.addWidget(card)
         self.result_area.setUpdatesEnabled(True)
-        
-        self.search_input.clear()
+
+        if not self.keep_search_text:
+            self.search_input.clear()
         self.search_input.setFocus()
     
     def _export_results(self):
@@ -466,18 +503,19 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             
             with open(file_path, 'w', encoding='utf-8') as f:
                 if is_csv:
-                    f.write("순위,점수,파일,내용\n")
+                    f.write("순위,랭킹점수,파일,근거청크수,내용\n")
                     for i, item in enumerate(self.last_search_results, 1):
                         content = item['content'].replace('"', '""').replace('\n', ' ')
-                        f.write(f'{i},{item["score"]:.2f},"{item["source"]}","{content}"\n')
+                        f.write(f'{i},{item["score"]:.2f},"{item["source"]}",{int(item.get("match_count", 1) or 1)},"{content}"\n')
                 else:
                     f.write(f"검색어: {self.last_search_query}\n")
                     f.write(f"결과 수: {len(self.last_search_results)}\n")
                     f.write("=" * 50 + "\n\n")
                     
                     for i, item in enumerate(self.last_search_results, 1):
-                        f.write(f"[결과 {i}] ({int(item['score']*100)}%)\n")
+                        f.write(f"[결과 {i}] (랭킹 {int(item['score']*100)})\n")
                         f.write(f"파일: {item['source']}\n")
+                        f.write(f"근거 청크: {int(item.get('match_count', 1) or 1)}개\n")
                         f.write("-" * 30 + "\n")
                         f.write(item['content'] + "\n\n")
             

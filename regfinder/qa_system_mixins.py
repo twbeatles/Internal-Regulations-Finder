@@ -53,6 +53,10 @@ class RegulationQADiagnosticsMixin:
                 "cache_schema_version": getattr(self, "CACHE_SCHEMA_VERSION", None),
                 "text_cache_path": self.current_text_cache_path,
                 "vector_cache_dir": self.current_vector_cache_dir,
+                "vector_ready": bool(self.vector_store),
+                "bm25_ready": self.bm25 is not None and bool(self.documents),
+                "search_mode": self._index_search_mode,
+                "memory_warning": bool(getattr(self, "_memory_warning", False)),
             }
 
             try:
@@ -100,6 +104,8 @@ class RegulationQADiagnosticsMixin:
                     "filtered_out": self.last_search_stats.filtered_out,
                     "result_count": self.last_search_stats.result_count,
                     "query_len": self.last_search_stats.query_len,
+                    "search_mode": self.last_search_stats.search_mode,
+                    "vector_ready": self.last_search_stats.vector_ready,
                     "filters": dict(self.last_search_stats.filters),
                 },
                 "model_inventory": model_inventory,
@@ -198,6 +204,10 @@ class RegulationQADiagnosticsMixin:
         data: Dict[str, Any] = {
             "cache_root": self.cache_path,
             "vector_loaded": bool(self.vector_store),
+            "vector_ready": bool(self.vector_store),
+            "bm25_ready": self.bm25 is not None and bool(self.documents),
+            "search_mode": self._index_search_mode,
+            "memory_warning": bool(getattr(self, "_memory_warning", False)),
             "documents": len(self.documents),
             "file_infos": len(self.file_infos),
             "model_id": self.model_id or "",

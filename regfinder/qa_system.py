@@ -33,6 +33,13 @@ from .runtime import (
     new_op_id,
     validate_embedding_runtime,
 )
+from .search_text import (
+    matches_path_filter,
+    matches_text_filter,
+    normalize_path_text,
+    normalize_search_text,
+    repeated_title_text,
+)
 from .text_cache import CachedChunk, TextCacheReplacement, TextCacheStore
 
 
@@ -64,6 +71,10 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
         self._diagnostics_lock = threading.Lock()
         self.last_search_stats = SearchStats()
         self._cache_usage_bytes_snapshot = 0
+        self._index_search_mode = ""
+        self._memory_warning = False
+        self._memory_warning_chunks = 0
+        self._vector_ready = False
 
     def reset_runtime_state(self, reset_model: bool = False):
         self.vector_store = None
@@ -81,6 +92,10 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
         self._loaded_vector_revision = 0
         self._loaded_vector_context = None
         self.last_search_stats = SearchStats()
+        self._index_search_mode = ""
+        self._memory_warning = False
+        self._memory_warning_chunks = 0
+        self._vector_ready = False
         if self.bm25:
             self.bm25.clear()
         self.bm25 = None
@@ -164,6 +179,47 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
     def _validate_embedding_runtime(self) -> None:
         validate_embedding_runtime(_import_module)
 
+    def _resolve_search_mode(self, hybrid: bool) -> str:
+        vector_ready = bool(self.vector_store)
+        bm25_ready = self.bm25 is not None and bool(self.documents)
+        if vector_ready and hybrid:
+            return "hybrid"
+        if vector_ready:
+            return "vector_only"
+        if bm25_ready:
+            return "bm25_only"
+        return ""
+
+    def _refresh_runtime_flags(self) -> None:
+        self._vector_ready = bool(self.vector_store)
+        self._index_search_mode = self._resolve_search_mode(hybrid=True)
+
+    def _update_memory_warning(self) -> None:
+        chunk_count = len(self.documents)
+        self._memory_warning_chunks = chunk_count
+        self._memory_warning = chunk_count > AppConfig.MAX_DOCS_IN_MEMORY
+
+    def _distance_to_score(self, distance: float) -> float:
+        return 1.0 / (1.0 + max(float(distance), 0.0))
+
+    def _combine_scores(self, *, vec_score: float, bm25_score: float, search_mode: str) -> float:
+        if search_mode == "vector_only":
+            return vec_score
+        if search_mode == "bm25_only":
+            return bm25_score
+        return (
+            AppConfig.VECTOR_WEIGHT * vec_score
+            + AppConfig.BM25_WEIGHT * bm25_score
+        )
+
+    def _build_bm25_documents(self) -> List[str]:
+        docs: List[str] = []
+        for idx, content in enumerate(self.documents):
+            meta = self.doc_meta[idx] if idx < len(self.doc_meta) else {}
+            source = str(meta.get("source", "") or "")
+            docs.append(repeated_title_text(source, content, repeats=2))
+        return docs
+
     def _hash_token(self, value: str) -> str:
         return hashlib.md5(str(value).encode("utf-8")).hexdigest()[:12]
 
@@ -227,6 +283,9 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
                 "elapsed_ms": elapsed_ms,
                 "failed_items_count": len(result.failed_items or []),
                 "text_cache_revision": self.text_cache_revision,
+                "vector_ready": bool((result.data or {}).get("vector_ready", self._vector_ready)),
+                "search_mode": str((result.data or {}).get("search_mode", self._index_search_mode)),
+                "memory_warning": bool((result.data or {}).get("memory_warning", self._memory_warning)),
                 "ts": datetime.now().isoformat(timespec="seconds"),
             }
         log.info(f"문서 처리 완료: success={result.success} elapsed={elapsed_ms}ms failed={len(result.failed_items or [])}")
@@ -341,14 +400,17 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
         self.text_cache_revision = text_snapshot.revision
         chunks = text_cache.load_chunks()
         self._load_documents_from_chunks(chunks)
+        self._build_bm25()
+        self._update_memory_warning()
 
         if cancel_check and cancel_check():
             return TaskResult(False, "사용자에 의해 취소됨")
 
-        progress_cb(72, "벡터 인덱스 동기화 중...")
         removed_doc_ids = self._expand_doc_ids(old_chunk_counts)
         text_changed = bool(deleted_keys or added_keys or modified_keys)
+        vector_ready = False
         if self.documents:
+            progress_cb(72, "벡터 인덱스 동기화 중...")
             synced = self._sync_vector_index(
                 folder,
                 text_changed=text_changed,
@@ -358,25 +420,41 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
                 progress_cb=progress_cb,
                 cancel_check=cancel_check,
             )
+            vector_ready = bool(synced and self.vector_store)
             if not synced:
-                return TaskResult(False, "인덱스 생성 실패")
+                self.vector_store = None
+                self._vector_id_mode = "auto"
         else:
             self.vector_store = None
             self._vector_id_mode = "auto"
             self._loaded_vector_revision = self.text_cache_revision
             self._save_vector_meta(self.current_vector_cache_dir, self.text_cache_revision, doc_count=0)
+            vector_ready = False
 
-        self._build_bm25()
+        self._refresh_runtime_flags()
+        search_mode = self._resolve_search_mode(hybrid=True)
+        summary = {
+            "chunks": len(self.documents),
+            "cached": len(unchanged_keys),
+            "new": len(replacements),
+            "text_cache_revision": self.text_cache_revision,
+            "vector_ready": bool(vector_ready),
+            "search_mode": search_mode,
+            "memory_warning": self._memory_warning,
+            "memory_warning_chunks": self._memory_warning_chunks,
+        }
         progress_cb(100, "완료!")
+        if self.documents and not vector_ready and self.bm25 is not None:
+            return TaskResult(
+                True,
+                f"{len(files) - len(failed)}개 처리 완료 (키워드 검색 모드)",
+                summary,
+                failed,
+            )
         return TaskResult(
             True,
             f"{len(files) - len(failed)}개 처리 완료",
-            {
-                "chunks": len(self.documents),
-                "cached": len(unchanged_keys),
-                "new": len(replacements),
-                "text_cache_revision": self.text_cache_revision,
-            },
+            summary,
             failed,
         )
 
@@ -406,8 +484,8 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
             self.doc_meta.append(meta)
             self.doc_ids.append(chunk.doc_id)
             self.doc_index_by_id[chunk.doc_id] = idx
-            source_lc = str(chunk.source or "").lower()
-            path_lc = str(chunk.path or "").lower()
+            source_lc = normalize_search_text(str(chunk.source or ""))
+            path_lc = normalize_path_text(str(chunk.path or ""))
             extension = os.path.splitext(path_lc or source_lc)[1].lower()
             self.doc_search_fields.append(
                 {
@@ -416,6 +494,7 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
                     "extension": extension,
                 }
             )
+        self._update_memory_warning()
 
     def _vector_meta_path(self, cache_dir: str) -> str:
         return os.path.join(cache_dir, "vector_meta.json")
@@ -466,10 +545,12 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
             self.current_vector_cache_dir = cache_dir
             self._loaded_vector_revision = int(meta.get("text_cache_revision", 0) or 0)
             self._loaded_vector_context = (self.current_folder, str(self.model_id or ""))
+            self._refresh_runtime_flags()
             return True
         except Exception:
             logger.exception("벡터 캐시 로드 중 오류 발생")
             self.vector_store = None
+            self._refresh_runtime_flags()
             return False
 
     def _save_vector_cache(self, cache_dir: str) -> None:
@@ -481,6 +562,7 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
         self.current_vector_cache_dir = cache_dir
         self._loaded_vector_revision = self.text_cache_revision
         self._loaded_vector_context = (self.current_folder, str(self.model_id or ""))
+        self._refresh_runtime_flags()
 
     def _sync_vector_index(
         self,
@@ -541,6 +623,7 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
         if not self.documents:
             self.vector_store = None
             self._save_vector_meta(cache_dir, self.text_cache_revision, doc_count=0)
+            self._refresh_runtime_flags()
             return True
         self.vector_store = None
         self._vector_id_mode = "doc_id"
@@ -641,9 +724,10 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
     def _build_bm25(self):
         if self.documents:
             self.bm25 = BM25Index()
-            self.bm25.fit(self.documents)
+            self.bm25.fit(self._build_bm25_documents())
         else:
             self.bm25 = None
+        self._refresh_runtime_flags()
 
     def search(
         self,
@@ -654,12 +738,13 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
         filters: Optional[Dict[str, str]] = None,
         sort_by: str = "score_desc",
     ) -> TaskResult:
-        if not self.vector_store:
-            return TaskResult(False, "문서가 로드되지 않았습니다", op_id=op_id or "", error_code="DOCS_NOT_LOADED")
-
         query = query.strip()
         if len(query) < 2:
             return TaskResult(False, "검색어가 너무 짧습니다 (최소 2자)", op_id=op_id or "", error_code="QUERY_TOO_SHORT")
+
+        search_mode = self._resolve_search_mode(hybrid)
+        if not search_mode:
+            return TaskResult(False, "문서가 로드되지 않았습니다", op_id=op_id or "", error_code="DOCS_NOT_LOADED")
 
         op_id = op_id or new_op_id("SEARCH")
         log = get_op_logger(op_id)
@@ -667,8 +752,18 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
         filters_norm = self._normalize_filters(filters or {})
         try:
             k = max(1, min(k, AppConfig.MAX_SEARCH_RESULTS))
-            vec_results, vector_fetch_k, filtered_out = self._search_vector(query, k, filters_norm)
-            combined, bm25_candidates = self._calculate_hybrid_results(query, vec_results, k * 3, hybrid, filters_norm)
+            vec_results: List[Tuple[Any, float]] = []
+            vector_fetch_k = 0
+            filtered_out = 0
+            if search_mode in {"hybrid", "vector_only"}:
+                vec_results, vector_fetch_k, filtered_out = self._search_vector(query, k, filters_norm)
+            combined, bm25_candidates = self._calculate_hybrid_results(
+                query,
+                vec_results,
+                max(k * 6, k),
+                search_mode,
+                filters_norm,
+            )
             filtered = self._apply_search_filters(combined, filters_norm)
             final_results = self._sort_results(filtered, sort_by)[:k]
             elapsed_ms = int((datetime.now() - started).total_seconds() * 1000)
@@ -679,13 +774,15 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
                 filtered_out=filtered_out,
                 result_count=len(final_results),
                 query_len=len(query),
+                search_mode=search_mode,
+                vector_ready=bool(self.vector_store),
                 filters=dict(filters_norm),
             )
             log.info(
-                "검색 완료: qlen=%s k=%s hybrid=%s results=%s fetch_k=%s bm25_candidates=%s (%sms)",
+                "검색 완료: qlen=%s k=%s mode=%s results=%s fetch_k=%s bm25_candidates=%s (%sms)",
                 len(query),
                 k,
-                bool(hybrid),
+                search_mode,
                 len(final_results),
                 vector_fetch_k,
                 bm25_candidates,
@@ -701,6 +798,8 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
                     "results": len(final_results),
                     "sort_by": sort_by,
                     "filters": dict(filters_norm),
+                    "search_mode": search_mode,
+                    "vector_ready": bool(self.vector_store),
                     "success": True,
                     "elapsed_ms": elapsed_ms,
                     "vector_fetch_k": vector_fetch_k,
@@ -731,8 +830,8 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
     def _normalize_filters(self, filters: Dict[str, str]) -> Dict[str, str]:
         return {
             "extension": str(filters.get("extension", "") or "").strip().lower(),
-            "filename": str(filters.get("filename", "") or "").strip().lower(),
-            "path": str(filters.get("path", "") or "").strip().lower(),
+            "filename": normalize_search_text(str(filters.get("filename", "") or "")),
+            "path": normalize_path_text(str(filters.get("path", "") or "")),
         }
 
     def _has_filters(self, filters: Dict[str, str]) -> bool:
@@ -746,9 +845,9 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
         fields = self.doc_search_fields[doc_idx]
         if filters["extension"] and fields["extension"] != filters["extension"]:
             return False
-        if filters["filename"] and filters["filename"] not in fields["source"]:
+        if filters["filename"] and not matches_text_filter(fields["source"], filters["filename"]):
             return False
-        if filters["path"] and filters["path"] not in fields["path"]:
+        if filters["path"] and not matches_path_filter(fields["path"], filters["path"]):
             return False
         return True
 
@@ -765,47 +864,117 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
         if total_docs <= 0:
             return [], 0, 0
         fetch_k = min(total_docs, max(k * 2, 1))
-        if self._has_filters(filters):
+        has_filters = self._has_filters(filters)
+        if has_filters:
             fetch_k = min(total_docs, max(k * 4, 20))
-        max_fetch = min(total_docs, max(fetch_k, AppConfig.MAX_VECTOR_FETCH))
+        max_fetch = total_docs if has_filters else min(total_docs, max(fetch_k, AppConfig.MAX_VECTOR_FETCH))
         while True:
             raw_results = vector_store.similarity_search_with_score(query, k=fetch_k)
-            if not self._has_filters(filters):
-                return raw_results, fetch_k, 0
-
             filtered_results: List[Tuple[Any, float]] = []
             filtered_out = 0
+            distinct_files: set[str] = set()
             for doc, dist in raw_results:
                 metadata = doc.metadata or {}
                 doc_id = str(metadata.get("id", "") or "")
                 doc_idx = self.doc_index_by_id.get(doc_id, -1)
-                if doc_idx < 0 or not self._matches_doc_filters(doc_idx, filters):
+                if has_filters and (doc_idx < 0 or not self._matches_doc_filters(doc_idx, filters)):
                     filtered_out += 1
                     continue
                 filtered_results.append((doc, dist))
-            if len(filtered_results) >= k or fetch_k >= max_fetch or len(raw_results) < fetch_k:
+                file_key = str(metadata.get("file_key", "") or doc_id or metadata.get("path", "") or metadata.get("source", ""))
+                if file_key:
+                    distinct_files.add(file_key)
+            if len(distinct_files) >= k or fetch_k >= max_fetch or len(raw_results) < fetch_k:
                 return filtered_results, fetch_k, filtered_out
             fetch_k = min(max_fetch, fetch_k * 2)
+
+    def _default_rank_key(self, item: Dict[str, Any]) -> tuple[float, int, float]:
+        return (
+            float(item.get("score", 0.0) or 0.0),
+            int(item.get("match_count", 0) or 0),
+            float(item.get("mtime", 0) or 0.0),
+        )
+
+    def _aggregate_file_results(
+        self,
+        chunk_results: Sequence[Dict[str, Any]],
+        *,
+        search_mode: str,
+    ) -> List[Dict[str, Any]]:
+        grouped: Dict[str, Dict[str, Any]] = {}
+        for item in chunk_results:
+            file_key = str(item.get("file_key", "") or item.get("id", "") or item.get("path", "") or item.get("source", "?"))
+            chunk_id = str(item.get("id", "") or f"{file_key}#{item.get('chunk_idx', 0)}")
+            chunk_score = self._combine_scores(
+                vec_score=float(item.get("vec_score", 0.0) or 0.0),
+                bm25_score=float(item.get("bm25_score", 0.0) or 0.0),
+                search_mode=search_mode,
+            )
+            existing = grouped.get(file_key)
+            if existing is None:
+                grouped[file_key] = {
+                    "id": chunk_id,
+                    "file_key": file_key,
+                    "chunk_idx": item.get("chunk_idx"),
+                    "snippet_chunk_idx": int(item.get("chunk_idx", 0) or 0),
+                    "content": item.get("content", ""),
+                    "source": item.get("source", "?"),
+                    "path": item.get("path", ""),
+                    "mtime": item.get("mtime"),
+                    "vec_score": float(item.get("vec_score", 0.0) or 0.0),
+                    "bm25_score": float(item.get("bm25_score", 0.0) or 0.0),
+                    "score": chunk_score,
+                    "match_count": 1,
+                    "_best_chunk_score": chunk_score,
+                    "_chunk_ids": {chunk_id},
+                }
+                continue
+
+            existing["vec_score"] = max(float(existing.get("vec_score", 0.0) or 0.0), float(item.get("vec_score", 0.0) or 0.0))
+            existing["bm25_score"] = max(float(existing.get("bm25_score", 0.0) or 0.0), float(item.get("bm25_score", 0.0) or 0.0))
+            existing["score"] = self._combine_scores(
+                vec_score=float(existing.get("vec_score", 0.0) or 0.0),
+                bm25_score=float(existing.get("bm25_score", 0.0) or 0.0),
+                search_mode=search_mode,
+            )
+            chunk_ids = existing["_chunk_ids"]
+            if chunk_id not in chunk_ids:
+                chunk_ids.add(chunk_id)
+                existing["match_count"] = int(existing.get("match_count", 0) or 0) + 1
+            best_chunk_score = float(existing.get("_best_chunk_score", 0.0) or 0.0)
+            if chunk_score > best_chunk_score or (
+                chunk_score == best_chunk_score
+                and int(item.get("chunk_idx", 0) or 0) < int(existing.get("snippet_chunk_idx", 0) or 0)
+            ):
+                existing["id"] = chunk_id
+                existing["chunk_idx"] = item.get("chunk_idx")
+                existing["snippet_chunk_idx"] = int(item.get("chunk_idx", 0) or 0)
+                existing["content"] = item.get("content", "")
+                existing["_best_chunk_score"] = chunk_score
+
+        aggregated: List[Dict[str, Any]] = []
+        for item in grouped.values():
+            item.pop("_best_chunk_score", None)
+            item.pop("_chunk_ids", None)
+            aggregated.append(item)
+        return sorted(aggregated, key=self._default_rank_key, reverse=True)
 
     def _calculate_hybrid_results(
         self,
         query: str,
         vec_results: List[Tuple[Any, float]],
         k: int,
-        hybrid: bool,
+        search_mode: str,
         filters: Dict[str, str],
     ) -> Tuple[List[Dict[str, Any]], int]:
         combined: Dict[str, Dict[str, Any]] = {}
 
-        if vec_results:
-            dists = [result[1] for result in vec_results]
-            min_d, max_d = min(dists), max(dists)
-            rng = max_d - min_d if max_d != min_d else 1.0
+        if search_mode in {"hybrid", "vector_only"} and vec_results:
             for doc, dist in vec_results:
                 metadata = doc.metadata or {}
                 doc_id = str(metadata.get("id", "") or "")
                 key = doc_id or doc.page_content[:100]
-                norm_score = max(0.1, 1 - ((dist - min_d) / (rng + 0.001)))
+                norm_score = self._distance_to_score(float(dist))
                 combined[key] = {
                     "id": doc_id,
                     "file_key": metadata.get("file_key"),
@@ -819,12 +988,12 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
                 }
 
         bm25_candidates = 0
-        if hybrid and self.bm25:
+        if search_mode in {"hybrid", "bm25_only"} and self.bm25:
             allow_doc = None
             if self._has_filters(filters):
                 allow_doc = lambda idx: self._matches_doc_filters(idx, filters)
             bm25_candidates = self.bm25.candidate_count(query, allow_doc=allow_doc)
-            bm_res = self.bm25.search(query, top_k=k * 2, allow_doc=allow_doc)
+            bm_res = self.bm25.search(query, top_k=min(len(self.documents), max(k * 8, 50)), allow_doc=allow_doc)
             if bm_res:
                 max_bm = max(score for _, score in bm_res)
                 for idx, score in bm_res:
@@ -850,12 +1019,13 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
                         }
 
         for item in combined.values():
-            item["score"] = (
-                AppConfig.VECTOR_WEIGHT * item["vec_score"]
-                + AppConfig.BM25_WEIGHT * item["bm25_score"]
+            item["score"] = self._combine_scores(
+                vec_score=float(item.get("vec_score", 0.0) or 0.0),
+                bm25_score=float(item.get("bm25_score", 0.0) or 0.0),
+                search_mode=search_mode,
             )
 
-        return sorted(combined.values(), key=lambda item: item["score"], reverse=True)[:k], bm25_candidates
+        return self._aggregate_file_results(list(combined.values()), search_mode=search_mode), bm25_candidates
 
     def _apply_search_filters(self, results: List[Dict[str, Any]], filters: Dict[str, str]) -> List[Dict[str, Any]]:
         filters_norm = self._normalize_filters(filters)
@@ -864,15 +1034,15 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
 
         filtered: List[Dict[str, Any]] = []
         for item in results:
-            source = str(item.get("source", "") or "").lower()
-            path = str(item.get("path", "") or "").lower()
+            source = normalize_search_text(str(item.get("source", "") or ""))
+            path = normalize_path_text(str(item.get("path", "") or ""))
             ext = os.path.splitext(path or source)[1].lower()
 
             if filters_norm["extension"] and ext != filters_norm["extension"]:
                 continue
-            if filters_norm["filename"] and filters_norm["filename"] not in source:
+            if filters_norm["filename"] and not matches_text_filter(source, filters_norm["filename"]):
                 continue
-            if filters_norm["path"] and filters_norm["path"] not in path:
+            if filters_norm["path"] and not matches_path_filter(path, filters_norm["path"]):
                 continue
             filtered.append(item)
         return filtered
@@ -882,7 +1052,7 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
             return sorted(results, key=lambda item: str(item.get("source", "") or "").lower())
         if sort_by == "mtime_desc":
             return sorted(results, key=lambda item: float(item.get("mtime", 0) or 0), reverse=True)
-        return sorted(results, key=lambda item: float(item.get("score", 0) or 0), reverse=True)
+        return sorted(results, key=self._default_rank_key, reverse=True)
 
     def get_file_infos(self):
         return list(self.file_infos.values())

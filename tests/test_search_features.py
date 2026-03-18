@@ -25,6 +25,20 @@ class SearchFeatureTest(unittest.TestCase):
         self.assertEqual(len(out), 1)
         self.assertIn("인사", out[0]["source"])
 
+    def test_filename_filter_matches_compact_query_against_spaced_filename(self):
+        sample = [
+            {"source": "인사 규정.docx", "path": r"C:\reg\인사 규정.docx", "score": 0.7, "mtime": 200.0},
+        ]
+        out = self.qa._apply_search_filters(sample, {"extension": "", "filename": "인사규정", "path": ""})
+        self.assertEqual(len(out), 1)
+
+    def test_path_filter_accepts_forward_slash_for_windows_style_path(self):
+        sample = [
+            {"source": "휴가규정.pdf", "path": r"C:\reg\hr\휴가규정.pdf", "score": 0.9, "mtime": 100.0},
+        ]
+        out = self.qa._apply_search_filters(sample, {"extension": "", "filename": "", "path": "reg/hr"})
+        self.assertEqual(len(out), 1)
+
     def test_sort_by_filename(self):
         out = self.qa._sort_results(self.sample, "filename_asc")
         names = [x["source"] for x in out]

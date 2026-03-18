@@ -16,6 +16,7 @@ This file tracks architecture and maintenance rules after modularization and fol
 | `regfinder/file_utils.py` | File I/O helpers + scandir discovery + lazy encoding fallback |
 | `regfinder/document_extractor.py` | TXT/DOCX/PDF/HWP extraction (+PDF password/OCR hook) |
 | `regfinder/text_cache.py` | Text cache (SQLite) |
+| `regfinder/search_text.py` | Shared search normalization/token expansion/filter matching |
 | `regfinder/bm25.py` | BM25Index tokenizer/ranker with postings |
 | `regfinder/qa_system.py` | Core indexing/search/text-cache+vector-cache service |
 | `regfinder/qa_system_mixins.py` | Diagnostics export, cache/index status APIs |
@@ -34,7 +35,8 @@ This file tracks architecture and maintenance rules after modularization and fol
 - `CHUNK_SIZE=800`, `CHUNK_OVERLAP=80`
 - `VECTOR_WEIGHT=0.7`, `BM25_WEIGHT=0.3`
 - `CACHE_SCHEMA_VERSION=3`
-- `CONFIG_SCHEMA_VERSION=2`
+- `CONFIG_SCHEMA_VERSION=3`
+- `MAX_DOCS_IN_MEMORY=5000` is a soft warning threshold, not a hard stop
 - data root: portable app directory first, then `LOCALAPPDATA/APPDATA`
 - text/vector cache root: tempdir `reg_qa_v93/text`, `reg_qa_v93/vector`
 
@@ -42,11 +44,19 @@ This file tracks architecture and maintenance rules after modularization and fol
 
 ## 🔎 Functional Notes
 
-- Search supports extension/filename/path filters.
-- Search supports sorting by score/filename/mtime.
-- Bookmark save/export and multi recent-folder list supported.
-- Diagnostic tab includes index status + search log summary.
-- Error dialogs include error-code-specific recovery guide text.
+- Search supports extension/filename/path filters and sorting by `score_desc`, `filename_asc`, `mtime_desc`.
+- Search normalization is centralized in `regfinder.search_text`, so BM25, filter matching, and UI highlighting share the same semantics.
+- Korean no-space queries such as `휴가규정` are expanded with char n-grams, and simple particles like `을/를/은/는` are stripped for semantic matching.
+- Search results are grouped at file level, not chunk level.
+  - The representative snippet comes from the highest-ranked chunk.
+  - Each result carries `match_count` and `snippet_chunk_idx`.
+- Result score wording is `랭킹 점수`, not a literal similarity percentage.
+- Filtered vector search increases `fetch_k` progressively until enough distinct file hits are found, reducing false negatives behind the top-100 window.
+- BM25 is built from content plus repeated filename text for lightweight title boost.
+- Document processing builds BM25 first, then attempts vector sync.
+  - If vector cache build/load fails, the app remains searchable in `bm25_only` mode.
+- Diagnostics expose `search_mode`, `vector_ready`, and `memory_warning` through last-search stats, last operation, and index status.
+- Settings include `keep_search_text`, enabled by default through config schema v3 migration.
 - Empty-state cards use dedicated object names/styles to avoid label background bleed-through.
 - Frozen onefile model download uses in-process fallback and validates `Pillow`, `scikit-learn`, `sentence_transformers` before loading embeddings.
 - Text cache is reused across model switches; vector cache is model-specific.
@@ -99,19 +109,20 @@ This file tracks architecture and maintenance rules after modularization and fol
   - `regfinder.main_window_ui_mixin`
   - `regfinder.main_window_mixins`
   - `regfinder.qa_system_mixins`
+  - `regfinder.search_text`
 - Spec also bundles runtime metadata required for offline embeddings:
   - `sentence-transformers`
   - `scikit-learn`
   - `pillow`
 - Spec keeps `charset_normalizer` hiddenimports because encoding fallback is loaded dynamically.
-- Spec excludes dev-only tooling such as `pytest`, `pyright`, `mypy`
+- Spec excludes dev-only tooling such as `pytest`, `pyright`, `mypy`.
 - Do not exclude `PIL` / `Pillow` or `scikit-learn` while slimming the EXE; packaged `sentence_transformers` import path depends on them.
 
 ---
 
 ## ✅ Validation Gates
 
-- `pyright .`
+- `python -m pyright .`
 - `python tools/smoke_refactor.py`
 - `python tools/benchmark_performance.py`
 - `python -m py_compile "사내 규정검색기 v9 PyQt6.spec"`

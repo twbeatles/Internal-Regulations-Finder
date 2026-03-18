@@ -52,6 +52,7 @@ hiddenimports = [
     'regfinder.qa_system_mixins',
     'regfinder.document_extractor',
     'regfinder.bm25',
+    'regfinder.search_text',
     'regfinder.file_utils',
     'regfinder.text_cache',
     'regfinder.model_inventory',

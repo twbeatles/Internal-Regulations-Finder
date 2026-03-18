@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
 from .app_types import AppConfig
 from .file_utils import FileUtils
 from .runtime import get_history_path, logger
+from .search_text import highlight_terms
 from .ui_style import ui_font
 
 class SearchHistory:
@@ -133,7 +134,9 @@ class ResultCard(QFrame):
         header.addStretch()
         
         # 점수 표시
-        score = int(data.get('score', 0) * 100)
+        score = max(0, min(100, int(round(float(data.get('score', 0) or 0) * 100))))
+        vec_score = max(0, min(100, int(round(float(data.get('vec_score', 0) or 0) * 100))))
+        bm25_score = max(0, min(100, int(round(float(data.get('bm25_score', 0) or 0) * 100))))
         score_color = "#10b981" if score >= 70 else "#f59e0b" if score >= 40 else "#ef4444"
         
         score_container = QHBoxLayout()
@@ -150,9 +153,9 @@ class ResultCard(QFrame):
         """)
         score_container.addWidget(pbar)
         
-        score_lbl = QLabel(f"{score}%")
+        score_lbl = QLabel(f"랭킹 {score}")
         score_lbl.setStyleSheet(f"color: {score_color}; font-weight: bold; font-size: 13px;")
-        score_lbl.setToolTip(f"유사도: {score}%\n벡터: {int(data.get('vec_score', 0)*100)}% | 키워드: {int(data.get('bm25_score', 0)*100)}%")
+        score_lbl.setToolTip(f"상대 랭킹 점수: {score}\n벡터: {vec_score} | 키워드: {bm25_score}")
         score_container.addWidget(score_lbl)
         
         header.addLayout(score_container)
@@ -187,6 +190,12 @@ class ResultCard(QFrame):
         
         header.addLayout(btn_container)
         layout.addLayout(header)
+
+        evidence_count = max(1, int(data.get("match_count", 1) or 1))
+        snippet_chunk_idx = int(data.get("snippet_chunk_idx", data.get("chunk_idx", 0)) or 0) + 1
+        evidence_label = QLabel(f"근거 청크 {evidence_count}개 | 대표 청크 #{snippet_chunk_idx}")
+        evidence_label.setStyleSheet("color: #9fb3c8; font-size: 11px;")
+        layout.addWidget(evidence_label)
         
         # 내용 (검색어 하이라이트 포함)
         content = QTextEdit()
@@ -202,25 +211,23 @@ class ResultCard(QFrame):
     
     def _apply_highlight(self, text_edit: QTextEdit, content: str, query: str):
         """검색어를 하이라이트 처리"""
-        from PyQt6.QtGui import QTextCursor, QTextCharFormat
-        
         text_edit.setPlainText(content)
         
         if not query or len(query) < 2:
             return
         
         # 검색어를 여러 단어로 분리하여 각각 하이라이트
-        keywords = [k.strip() for k in query.split() if len(k.strip()) >= 2]
+        keywords = highlight_terms(query)
         
         highlight_format = QTextCharFormat()
         highlight_format.setBackground(QColor("#e94560"))
         highlight_format.setForeground(QColor("white"))
         
         cursor = text_edit.textCursor()
+        text = content.lower()
         
         for keyword in keywords:
             # 대소문자 무시 검색
-            text = content.lower()
             keyword_lower = keyword.lower()
             start = 0
             

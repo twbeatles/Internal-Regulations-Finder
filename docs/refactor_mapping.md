@@ -2,7 +2,7 @@
 
 ## Goal
 
-단일 파일 구조를 `regfinder` 패키지로 분할하고, 이후 유지보수성과 운영 안정성을 높이는 2차 분리까지 반영한다.
+단일 파일 구조를 `regfinder` 패키지로 분할하고, 이후 유지보수성과 운영 안정성을 높이는 2차 분리와 검색 품질 리팩토링까지 반영한다.
 
 ---
 
@@ -48,12 +48,24 @@
 
 ---
 
+## Phase 4: Search Quality / UX Hardening
+
+| Source | Extracted/Added | Purpose |
+|---|---|---|
+| 신규 | `regfinder/search_text.py` | 공용 검색 정규화 / 토큰 확장 / 필터 매칭 |
+| `regfinder/qa_system.py` | file-level result aggregation | `match_count`, `snippet_chunk_idx`, 대표 청크 선정 |
+| `regfinder/qa_system.py` | degraded search mode handling | `hybrid` / `vector_only` / `bm25_only` 명시 |
+| `regfinder/main_window.py` | search mode + memory warning surface | UI 상태/경고/내부 진단 표시 |
+| `regfinder/ui_components.py` | ranking score / evidence labels | `랭킹 점수`, `근거 청크 n개` UI 표기 |
+
+---
+
 ## Compatibility Notes
 
 - 실행 엔트리 유지: `python "사내 규정검색기 v9 PyQt6.py"`
 - PyInstaller 진입 유지: `사내 규정검색기 v9 PyQt6.spec`
 - spec hiddenimports에 신규 internal 모듈 추가 반영
-- spec hiddenimports에 `regfinder.text_cache`, `regfinder.model_inventory`, `charset_normalizer` 추가 반영
+- spec hiddenimports에 `regfinder.text_cache`, `regfinder.model_inventory`, `regfinder.search_text`, `charset_normalizer` 추가 반영
 - frozen(onefile) 모델 다운로드는 subprocess 대신 in-process 경로로 폴백
 - spec은 offline embeddings를 위해 `sentence-transformers` / `scikit-learn` / `pillow` 메타데이터를 포함
 - lazy 인코딩 fallback을 위해 `charset_normalizer`는 spec에서 제외 금지
@@ -61,13 +73,13 @@
 - 텍스트 인코딩/줄바꿈 정책은 `.editorconfig` + `.gitattributes`로 고정
 - VSCode workspace 설정은 `.vscode/settings.json`으로 UTF-8/Pylance 범위를 고정
 - 모델 다운로드 상태 UI는 `ModelDownloadState` 타입 계약으로 강타입화
-- 캐시 스키마는 `CACHE_SCHEMA_VERSION=3`, 설정 스키마는 `CONFIG_SCHEMA_VERSION=2`
+- 캐시 스키마는 `CACHE_SCHEMA_VERSION=3`, 설정 스키마는 `CONFIG_SCHEMA_VERSION=3`
 
 ---
 
 ## Repository Hygiene
 
-- `pyright .` 기준 오류 0건 유지
+- `python -m pyright .` 기준 오류 0건 유지
 - 추적 텍스트 파일은 `UTF-8(no BOM)` 유지
 - `tests/test_repo_text_encoding.py`로 UTF-8 디코딩/replacement char 회귀 검증 유지
 - Windows PowerShell/Python 출력 모지바케는 실제 저장소 파일 손상과 분리해 판단

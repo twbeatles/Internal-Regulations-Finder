@@ -317,6 +317,14 @@ class MainWindowUIBuilderMixin:
         self.font_size_label.setStyleSheet("color: #e94560; font-weight: bold;")
         font_row.addWidget(self.font_size_label)
         display_layout.addLayout(font_row)
+
+        self.keep_search_text_check = QCheckBox("검색 후 검색어 유지")
+        self.keep_search_text_check.setChecked(self.keep_search_text)
+        self.keep_search_text_check.setToolTip("검색 성공 후에도 입력한 검색어를 유지합니다")
+        self.keep_search_text_check.stateChanged.connect(
+            lambda: (setattr(self, "keep_search_text", self.keep_search_text_check.isChecked()), self._save_config())
+        )
+        display_layout.addWidget(self.keep_search_text_check)
         layout.addWidget(display_card)
 
         model_card = self._create_setting_card("🤖 AI 모델")

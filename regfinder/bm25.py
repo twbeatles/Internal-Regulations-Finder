@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import gc
 import math
-import re
 from collections import Counter, defaultdict
 from typing import Callable, DefaultDict, Dict, List, Tuple
+
+from .search_text import bm25_terms
 
 
 class BM25Index:
@@ -35,20 +36,7 @@ class BM25Index:
     def _tokenize(self, text: str) -> List[str]:
         if not text:
             return []
-        text = re.sub(r"[^\w\s가-힣]", " ", text.lower())
-        tokens = text.split()
-        particles = {"은", "는", "이", "가", "을", "를", "의", "에", "로", "와", "과", "도", "만"}
-        filtered = []
-        for token in tokens:
-            if len(token) < 2:
-                continue
-            for particle in particles:
-                if token.endswith(particle) and len(token) > len(particle) + 1:
-                    token = token[:-len(particle)]
-                    break
-            if len(token) >= 2:
-                filtered.append(token)
-        return filtered
+        return bm25_terms(text)
 
     def fit(self, docs: List[str]) -> None:
         self.corpus = []

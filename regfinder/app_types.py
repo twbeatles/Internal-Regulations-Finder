@@ -21,7 +21,7 @@ class AppConfig:
     BOOKMARKS_FILE = "bookmarks.json"
     RECENTS_FILE = "recent_folders.json"
     SEARCH_LOG_FILE = "search_log.json"
-    CONFIG_SCHEMA_VERSION = 2
+    CONFIG_SCHEMA_VERSION = 3
     SUPPORTED_EXTENSIONS = ('.txt', '.docx', '.pdf', '.hwp')
     
     MAX_FONT_SIZE = 32
@@ -94,6 +94,8 @@ class SearchStats:
     filtered_out: int = 0
     result_count: int = 0
     query_len: int = 0
+    search_mode: str = ""
+    vector_ready: bool = False
     filters: Dict[str, str] = field(default_factory=dict)
 
 

@@ -66,7 +66,7 @@ class _DebouncedJsonWriter:
 
 
 class ConfigManager:
-    """설정 로드/저장 + 스키마 마이그레이션(v1 -> v2)."""
+    """설정 로드/저장 + 스키마 마이그레이션(v1 -> v3)."""
 
     def __init__(self):
         self.path = get_config_path()
@@ -82,6 +82,7 @@ class ConfigManager:
             "font": AppConfig.DEFAULT_FONT_SIZE,
             "hybrid": True,
             "recursive": False,
+            "keep_search_text": True,
             "sort_by": "score_desc",
             "filters": {
                 "extension": "",
@@ -105,6 +106,7 @@ class ConfigManager:
             migrated["model"] = raw.get("model", defaults["model"]) or defaults["model"]
             migrated["font"] = raw.get("font", defaults["font"]) or defaults["font"]
             migrated["hybrid"] = bool(raw.get("hybrid", defaults["hybrid"]))
+            migrated["keep_search_text"] = bool(raw.get("keep_search_text", defaults["keep_search_text"]))
             return migrated
 
         cfg = dict(defaults)
@@ -116,6 +118,7 @@ class ConfigManager:
         cfg["font"] = int(raw.get("font", defaults["font"]) or defaults["font"])
         cfg["hybrid"] = bool(raw.get("hybrid", defaults["hybrid"]))
         cfg["recursive"] = bool(raw.get("recursive", defaults["recursive"]))
+        cfg["keep_search_text"] = bool(raw.get("keep_search_text", defaults["keep_search_text"]))
         cfg["sort_by"] = str(raw.get("sort_by", defaults["sort_by"]) or defaults["sort_by"])
         filters = raw.get("filters", {})
         if isinstance(filters, dict):
@@ -134,6 +137,7 @@ class ConfigManager:
         if not isinstance(recents, list):
             recents = []
         payload["recent_folders"] = [x for x in recents if isinstance(x, str) and x][:AppConfig.MAX_RECENT_FOLDERS]
+        payload["keep_search_text"] = bool(payload.get("keep_search_text", True))
         self._writer.schedule(payload)
 
     def flush(self) -> None:

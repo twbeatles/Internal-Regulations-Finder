@@ -35,7 +35,23 @@ class PersistenceTest(unittest.TestCase):
             self.assertEqual(cfg["folder"], "C:/docs")
             self.assertEqual(cfg["recent_folders"], ["C:/docs"])
             self.assertFalse(cfg["hybrid"])
+            self.assertTrue(cfg["keep_search_text"])
             self.assertIn("filters", cfg)
+
+    def test_config_manager_defaults_keep_search_text_true(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg_path = os.path.join(td, "config.json")
+            with patch("regfinder.persistence.get_config_path", return_value=cfg_path):
+                manager = ConfigManager()
+                cfg = manager.load()
+                manager.save(cfg)
+                manager.flush()
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    saved = json.load(f)
+
+            self.assertTrue(cfg["keep_search_text"])
+            self.assertTrue(saved["keep_search_text"])
+            self.assertEqual(saved["schema_version"], AppConfig.CONFIG_SCHEMA_VERSION)
 
     def test_recent_folders_store_dedup_and_order(self):
         with tempfile.TemporaryDirectory() as td:

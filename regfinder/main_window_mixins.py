@@ -51,6 +51,7 @@ class MainWindowConfigMixin:
         self.font_size = cfg.get("font", AppConfig.DEFAULT_FONT_SIZE)
         self.hybrid = bool(cfg.get("hybrid", True))
         self.recursive = bool(cfg.get("recursive", False))
+        self.keep_search_text = bool(cfg.get("keep_search_text", True))
         self.sort_by = str(cfg.get("sort_by", "score_desc") or "score_desc")
         self.search_filters = dict(cfg.get("filters", {}) or {"extension": "", "filename": "", "path": ""})
         cfg_recents = cfg.get("recent_folders", [])
@@ -66,6 +67,7 @@ class MainWindowConfigMixin:
         self.font_size = AppConfig.DEFAULT_FONT_SIZE
         self.hybrid = True
         self.recursive = False
+        self.keep_search_text = True
         self.sort_by = "score_desc"
         self.search_filters = {"extension": "", "filename": "", "path": ""}
 
@@ -78,6 +80,7 @@ class MainWindowConfigMixin:
             "font": self.font_size,
             "hybrid": self.hybrid,
             "recursive": self.recursive,
+            "keep_search_text": self.keep_search_text,
             "sort_by": self.sort_combo.currentData() if hasattr(self, "sort_combo") else self.sort_by,
             "filters": self._gather_search_filters() if hasattr(self, "ext_filter_combo") else self.search_filters,
         }
@@ -127,7 +130,7 @@ class MainWindowInsightsMixin:
 
         self.bookmark_table = QTableWidget()
         self.bookmark_table.setColumnCount(4)
-        self.bookmark_table.setHorizontalHeaderLabels(["시간", "검색어", "파일", "점수"])
+        self.bookmark_table.setHorizontalHeaderLabels(["시간", "검색어", "파일", "랭킹점수"])
         header = self.bookmark_table.horizontalHeader()
         if header is not None:
             header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
@@ -264,7 +267,7 @@ class MainWindowInsightsMixin:
         try:
             with open(file_path, "w", encoding="utf-8") as f:
                 if is_csv:
-                    f.write("시간,검색어,파일,점수,내용\n")
+                    f.write("시간,검색어,파일,랭킹점수,내용\n")
                     for item in self.bookmarks.items:
                         content = str(item.get("content", "")).replace('"', '""').replace("\n", " ")
                         f.write(
@@ -275,7 +278,7 @@ class MainWindowInsightsMixin:
                         f.write(f"[{i}] {item.get('ts','')}\n")
                         f.write(f"검색어: {item.get('query','')}\n")
                         f.write(f"파일: {item.get('source','')}\n")
-                        f.write(f"점수: {float(item.get('score',0) or 0):.2f}\n")
+                        f.write(f"랭킹점수: {float(item.get('score',0) or 0):.2f}\n")
                         f.write(f"내용: {item.get('content','')}\n")
                         f.write("-" * 50 + "\n")
             self._show_status(f"✅ 북마크 내보내기 완료: {os.path.basename(file_path)}", "#10b981", 3000)
@@ -337,7 +340,7 @@ class MainWindowInsightsMixin:
         lines.append("")
         lines.append("[Last Search Stats]")
         if isinstance(last_search_stats, dict) and last_search_stats:
-            for k in ["elapsed_ms", "vector_fetch_k", "bm25_candidates", "filtered_out", "result_count", "query_len"]:
+            for k in ["elapsed_ms", "vector_fetch_k", "bm25_candidates", "filtered_out", "result_count", "query_len", "search_mode", "vector_ready"]:
                 if k in last_search_stats:
                     lines.append(f"- {k}: {last_search_stats.get(k)}")
         else:
@@ -431,6 +434,18 @@ class MainWindowInsightsMixin:
                     lines.append(
                         f"📌 cache schema: v{schema}, rev: {revision}, files: {total_files}, chunks: {total_chunks}"
                     )
+                vector_ready = index_status.get("vector_ready")
+                bm25_ready = index_status.get("bm25_ready")
+                search_mode = index_status.get("search_mode")
+                memory_warning = index_status.get("memory_warning")
+                if vector_ready is not None:
+                    lines.append(f"📌 vector ready: {vector_ready}")
+                if bm25_ready is not None:
+                    lines.append(f"📌 bm25 ready: {bm25_ready}")
+                if search_mode:
+                    lines.append(f"📌 search mode: {search_mode}")
+                if memory_warning:
+                    lines.append("📌 memory warning: large index")
             except Exception:
                 pass
         if last_op_id:

@@ -55,7 +55,11 @@
 | 신규 | `regfinder/search_text.py` | 공용 검색 정규화 / 토큰 확장 / 필터 매칭 |
 | `regfinder/qa_system.py` | file-level result aggregation | `match_count`, `snippet_chunk_idx`, 대표 청크 선정 |
 | `regfinder/qa_system.py` | degraded search mode handling | `hybrid` / `vector_only` / `bm25_only` 명시 |
+| `regfinder/qa_system.py` | modified-file cache invalidation | 재추출 실패 파일의 stale text/chunk 제거 |
+| `regfinder/ui_components.py` | normalized highlight spans | 조사 제거/무공백 질의와 같은 규칙으로 하이라이트 |
 | `regfinder/main_window.py` | search mode + memory warning surface | UI 상태/경고/내부 진단 표시 |
+| `regfinder/main_window.py` | encrypted PDF preflight + cache reset sync | 세션 비밀번호 수집/재사용, 캐시 삭제 후 UI 동기화 |
+| `regfinder/main_window.py` / `regfinder/main_window_mixins.py` | csv-safe exports | 검색 결과/북마크 CSV escaping 일원화 |
 | `regfinder/ui_components.py` | ranking score / evidence labels | `랭킹 점수`, `근거 청크 n개` UI 표기 |
 
 ---

@@ -14,6 +14,9 @@
     앱 설정 탭의 `🧰 진단 내보내기`는 빌드와 무관하지만, 배포 환경에서 문제 재현/분석을 위한 로그/설정/환경 요약 zip을 생성합니다.
     모델 다운로드는 스크립트 실행 시 subprocess 경로를 사용하며,
     frozen(onefile) 실행에서는 in-process 경로로 폴백됩니다.
+    따라서 onefile EXE의 다운로드 취소는 현재 모델 완료 후 중단될 수 있습니다.
+    암호화 PDF 비밀번호는 GUI에서 폴더 로드 전 사전 입력되며 세션 메모리에만 유지됩니다.
+    이미지 PDF용 OCR 엔진은 기본 번들에 포함하지 않습니다.
     `sentence_transformers` import 경로는 `transformers -> PIL.Image` 와
     `sentence_transformers -> sklearn.metrics` 체인을 타므로,
     경량화 시 `Pillow` / `scikit-learn` 제외 여부를 주의해야 합니다.

@@ -41,3 +41,44 @@ def test_model_download_thread_run_frozen_in_process(monkeypatch, tmp_path):
     assert len(results) == 1
     assert results[0].success is True
     assert results[0].error_code == ""
+
+
+def test_model_download_thread_reports_deferred_cancel_message_in_frozen_mode(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(
+        "regfinder.workers.get_models_directory",
+        lambda: str(tmp_path / "models"),
+    )
+
+    def fake_import_module(name: str):
+        class FakeTorch:
+            class cuda:
+                @staticmethod
+                def is_available() -> bool:
+                    return False
+
+        assert name == "torch"
+        return FakeTorch
+
+    calls: list[str] = []
+
+    def fake_run(self, model_id: str, cache_dir: str, device: str):
+        calls.append(model_id)
+        if len(calls) == 1:
+            self.cancel()
+
+    monkeypatch.setattr("regfinder.workers._import_module", fake_import_module)
+    monkeypatch.setattr(ModelDownloadThread, "_run_download_in_process", fake_run)
+
+    worker = ModelDownloadThread([("첫번째", "demo/model-a"), ("두번째", "demo/model-b")])
+    results = []
+    worker.finished.connect(results.append)
+
+    worker.run()
+
+    assert calls == ["demo/model-a"]
+    assert len(results) == 1
+    assert results[0].success is False
+    assert results[0].error_code == "DOWNLOAD_CANCELED"
+    assert "현재 모델 완료 후 중단" in results[0].message
+    assert results[0].data["downloaded"] == ["첫번째"]

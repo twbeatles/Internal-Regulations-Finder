@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from typing import Iterable, List
+from typing import Iterable, List, Tuple
 
 
 _KOREAN_PARTICLES = {
@@ -77,6 +77,56 @@ def bm25_terms(value: str) -> List[str]:
 
 def highlight_terms(value: str) -> List[str]:
     return sorted(semantic_terms(value), key=len, reverse=True)
+
+
+def _compact_text_with_positions(value: str) -> Tuple[str, List[int]]:
+    compact_chars: List[str] = []
+    positions: List[int] = []
+    for idx, ch in enumerate(str(value or "")):
+        lowered = ch.lower()
+        if re.fullmatch(r"[\w가-힣]", lowered):
+            compact_chars.append(lowered)
+            positions.append(idx)
+    return "".join(compact_chars), positions
+
+
+def highlight_spans(content: str, query: str) -> List[Tuple[int, int]]:
+    if not content or not query:
+        return []
+
+    compact_content, positions = _compact_text_with_positions(content)
+    if not compact_content:
+        return []
+
+    spans: List[Tuple[int, int]] = []
+    for term in unique_terms(highlight_terms(query)):
+        compact_term = normalize_compact_text(term)
+        if len(compact_term) < 2:
+            continue
+        start = 0
+        while True:
+            pos = compact_content.find(compact_term, start)
+            if pos < 0:
+                break
+            raw_start = positions[pos]
+            raw_end = positions[pos + len(compact_term) - 1] + 1
+            spans.append((raw_start, raw_end))
+            start = pos + len(compact_term)
+
+    if not spans:
+        return []
+
+    merged: List[Tuple[int, int]] = []
+    for start, end in sorted(spans):
+        if not merged:
+            merged.append((start, end))
+            continue
+        prev_start, prev_end = merged[-1]
+        if start <= prev_end + 1:
+            merged[-1] = (prev_start, max(prev_end, end))
+            continue
+        merged.append((start, end))
+    return merged
 
 
 def matches_text_filter(value: str, query: str) -> bool:

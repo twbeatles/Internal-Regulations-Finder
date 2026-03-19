@@ -9,12 +9,17 @@
 - 캐시는 `CACHE_SCHEMA_VERSION=3` 기준으로 텍스트(SQLite)와 모델별 벡터 캐시로 분리
 - 정적 분석 기준은 `pyrightconfig.json`으로 고정
 - frozen(onefile) 모델 다운로드는 subprocess 대신 in-process 경로 사용
+- frozen(onefile) 다운로드 취소는 현재 모델 완료 후 중단될 수 있음
 - 오프라인 임베딩 런타임은 `Pillow` / `scikit-learn` / `sentence_transformers` 사전검증 추가
 - `FileUtils.safe_read()`는 `UTF-8 -> CP949 -> EUC-KR` fast path 후 lazy `charset_normalizer` fallback 사용
 - 검색 정규화는 `regfinder.search_text`로 통합되어 BM25/필터/하이라이트가 같은 규칙을 사용
 - 무공백 한국어 질의와 조사 제거 기반 semantic matching을 지원
 - 검색 결과는 파일 단위로 그룹화되며 `match_count`, `snippet_chunk_idx`를 함께 유지
-- 벡터 인덱스 실패 시에도 `bm25_only` 검색 모드로 폴백 가능
+- 벡터 인덱스 실패 시에도 GUI에서 `bm25_only` 검색 모드로 계속 검색 가능
+- 수정 파일 재추출 실패 시 기존 텍스트/청크는 현재 인덱스에서 제거되어 stale 검색 결과를 막음
+- 암호화 PDF는 폴더 로드 전 사전 검사 후 파일별 비밀번호를 세션 메모리로 재사용
+- 검색 결과/북마크 CSV 내보내기는 `csv` writer 기반 escaping을 사용
+- 캐시 삭제 시 메모리 상태/결과/진단/PDF 비밀번호 세션을 함께 초기화
 - 진단 탭/내부 상태는 `search_mode`, `vector_ready`, `memory_warning`를 표시
 - 모델 다운로드 상태는 Hugging Face 로컬 캐시(`models--.../blobs`, `snapshots`) 기준으로 판별
 - 모델 다운로드 상태/용량은 `model_inventory.json` 캐시를 통해 재스캔 비용을 줄임
@@ -24,9 +29,10 @@
 ## 현재 사용자 기능
 
 - 검색 필터: 확장자/파일명/경로
-- 검색 정렬: 랭킹점수순/파일명순/최근 수정순
+- 검색 정렬: 점수순/파일명순/최근 수정순
 - 파일 단위 검색 결과, 대표 청크, 근거 청크 수 표시
 - 랭킹 점수 툴팁(상대 점수 + 벡터/키워드 구성요소)
+- 암호화 PDF 사전 비밀번호 입력(세션 메모리만 사용)
 - 결과 북마크 저장/내보내기
 - 최근 폴더 다중 관리
 - 진단 탭(인덱스 상태 + 검색 로그 요약 + 마지막 검색 통계)

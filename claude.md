@@ -55,10 +55,16 @@ This file tracks architecture and maintenance rules after modularization and fol
 - BM25 is built from content plus repeated filename text for lightweight title boost.
 - Document processing builds BM25 first, then attempts vector sync.
   - If vector cache build/load fails, the app remains searchable in `bm25_only` mode.
+  - GUI search entry also stays available in `bm25_only` mode.
+- Modified-file re-extraction failures purge the previous cached text/chunks for that file, so stale content does not remain searchable.
+- Encrypted PDFs are pre-scanned before folder indexing and file-level passwords are kept in session memory only.
+- UI highlighting uses `highlight_spans()` from `regfinder.search_text`, so no-space Korean queries and particle stripping apply to visible highlight ranges too.
 - Diagnostics expose `search_mode`, `vector_ready`, and `memory_warning` through last-search stats, last operation, and index status.
 - Settings include `keep_search_text`, enabled by default through config schema v3 migration.
 - Empty-state cards use dedicated object names/styles to avoid label background bleed-through.
 - Frozen onefile model download uses in-process fallback and validates `Pillow`, `scikit-learn`, `sentence_transformers` before loading embeddings.
+- Frozen onefile download cancel is deferred: the current model may finish before the worker stops.
+- Results/bookmarks CSV exports use Python `csv` writer escaping, and cache clear resets memory state plus session PDF passwords while keeping the loaded model when available.
 - Text cache is reused across model switches; vector cache is model-specific.
 - `FileUtils.safe_read()` uses `UTF-8 -> CP949 -> EUC-KR` fast path and lazily imports `charset_normalizer` only on fallback.
 - Search input becomes enabled immediately after successful model load, even before folder indexing.

@@ -10,20 +10,25 @@ from PyQt6.QtGui import QColor, QFont, QMouseEvent, QTextCursor, QTextCharFormat
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
+    QDialogButtonBox,
     QFrame,
+    QFormLayout,
     QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QTextEdit,
     QVBoxLayout,
+    QWidget,
 )
 
 from .app_types import AppConfig
 from .file_utils import FileUtils
 from .runtime import get_history_path, logger
-from .search_text import highlight_terms
+from .search_text import highlight_spans
 from .ui_style import ui_font
 
 class SearchHistory:
@@ -216,30 +221,15 @@ class ResultCard(QFrame):
         if not query or len(query) < 2:
             return
         
-        # 검색어를 여러 단어로 분리하여 각각 하이라이트
-        keywords = highlight_terms(query)
-        
         highlight_format = QTextCharFormat()
         highlight_format.setBackground(QColor("#e94560"))
         highlight_format.setForeground(QColor("white"))
         
         cursor = text_edit.textCursor()
-        text = content.lower()
-        
-        for keyword in keywords:
-            # 대소문자 무시 검색
-            keyword_lower = keyword.lower()
-            start = 0
-            
-            while True:
-                pos = text.find(keyword_lower, start)
-                if pos == -1:
-                    break
-                
-                cursor.setPosition(pos)
-                cursor.setPosition(pos + len(keyword), QTextCursor.MoveMode.KeepAnchor)
-                cursor.mergeCharFormat(highlight_format)
-                start = pos + len(keyword)
+        for start, end in highlight_spans(content, query):
+            cursor.setPosition(start)
+            cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+            cursor.mergeCharFormat(highlight_format)
         
         # 커서를 처음으로 이동
         cursor.setPosition(0)
@@ -299,6 +289,7 @@ class ProgressDialog(QFrame):
         super().__init__(parent)
         self.setObjectName("card")
         self.setFixedSize(400, 180)
+        self._cancel_pending_message = ""
         
         # 그림자 효과
         shadow = QGraphicsDropShadowEffect(self)
@@ -350,12 +341,71 @@ class ProgressDialog(QFrame):
         self.cancel_btn.setEnabled(False)
         self.cancel_btn.setText("취소 중...")
         self.canceled.emit()
+
+    def set_cancel_pending(self, message: str, *, button_text: str = "중단 요청됨"):
+        self._cancel_pending_message = str(message or "")
+        self.cancel_btn.setEnabled(False)
+        self.cancel_btn.setText(button_text)
+        if self._cancel_pending_message:
+            self.detail_label.setText(self._cancel_pending_message)
     
     def update_progress(self, percent: int, status: str):
         """진행 상황 업데이트"""
         self.progress_bar.setValue(percent)
         self.status_label.setText(status)
+        if self._cancel_pending_message:
+            self.detail_label.setText(self._cancel_pending_message)
+            return
         self.detail_label.setText(f"{percent}% 완료")
+
+
+class PdfPasswordDialog(QDialog):
+    def __init__(self, files: List[Dict[str, str]], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("암호화 PDF 비밀번호 입력")
+        self.resize(620, 420)
+        self._inputs: Dict[str, QLineEdit] = {}
+
+        layout = QVBoxLayout(self)
+        info_label = QLabel(
+            "암호화된 PDF가 감지되었습니다.\n"
+            "파일별 비밀번호를 입력하세요. 비워두면 해당 파일은 이번 인덱스에서 제외됩니다.\n"
+            "비밀번호는 현재 앱 세션 메모리에만 유지되며 디스크에 저장하지 않습니다."
+        )
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        container = QWidget()
+        form = QFormLayout(container)
+        form.setContentsMargins(8, 8, 8, 8)
+        form.setSpacing(10)
+        for item in files:
+            path = str(item.get("path", "") or "")
+            label = str(item.get("label", path) or path)
+            edit = QLineEdit()
+            edit.setEchoMode(QLineEdit.EchoMode.Password)
+            edit.setPlaceholderText("비워두면 이번 로드에서 건너뜁니다")
+            edit.setText(str(item.get("password", "") or ""))
+            edit.setClearButtonEnabled(True)
+            form.addRow(label, edit)
+            self._inputs[path] = edit
+        scroll.setWidget(container)
+        layout.addWidget(scroll, 1)
+
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+    def passwords(self) -> Dict[str, str]:
+        return {
+            path: edit.text()
+            for path, edit in self._inputs.items()
+        }
 
 
 class DebugDetailsDialog(QDialog):

@@ -27,6 +27,7 @@
 
 ### 테스트
 
+- `tests/test_main_window_behaviors.py`
 - `tests/test_bm25_state.py`
 - `tests/test_document_extractor_hwp.py`
 - `tests/test_document_extractor_pdf.py`
@@ -86,7 +87,7 @@
 ### 1순위
 
 1. 검색 필터(확장자/경로/파일명): **완료**
-2. 검색 정렬(랭킹점수/파일명/최근수정): **완료**
+2. 검색 정렬(점수순/파일명순/최근수정순): **완료**
 3. 북마크 및 내보내기: **완료**
 4. 최근 폴더 다중 관리: **완료**
 
@@ -106,6 +107,12 @@
 5. BM25-only fallback + `search_mode` / `vector_ready` 진단 노출: **완료**
 6. `keep_search_text` 설정 및 랭킹 점수 UI: **완료**
 7. 대규모 인덱스 soft warning(`memory_warning`): **완료**
+8. GUI `bm25_only` 검색 진입 차단 제거: **완료**
+9. 수정 파일 재추출 실패 시 stale cache 제거: **완료**
+10. 암호화 PDF 사전 비밀번호 입력(세션 메모리): **완료**
+11. frozen(onefile) 다운로드 취소 semantics 안내: **완료**
+12. 검색 정규화 기반 하이라이트 정합성 보강: **완료**
+13. 캐시 삭제 후 UI/세션 상태 동기화: **완료**
 
 ---
 
@@ -165,8 +172,23 @@
    - UI/북마크/내보내기에서 `유사도` 대신 `랭킹 점수` 사용
 4. degraded mode 유지
    - 벡터 인덱스 실패 시에도 `bm25_only` 검색과 진단은 계속 동작
+   - GUI 검색 진입도 `bm25_only` 상태에서 허용
 5. 운영 상태 가시성 강화
    - `search_mode`, `vector_ready`, `memory_warning`가 내부 상태와 진단 탭에 반영
+
+### 5-3) 최근 안정화/정합성 반영
+
+1. 수정 파일 stale cache 제거
+   - 재추출 실패한 modified file의 기존 텍스트/청크를 현재 인덱스에서 제외
+2. 암호화 PDF 사전 입력 UX
+   - 폴더 로드 전 암호화 PDF를 감지하고 파일별 비밀번호를 세션 메모리에 보관
+3. onefile 다운로드 취소 메시지 보강
+   - frozen 경로는 현재 모델 완료 후 중단될 수 있음을 UI/문서에 명시
+4. CSV 내보내기 안정화
+   - 검색 결과/북마크 CSV를 `csv` 모듈 기반으로 정리
+5. 캐시 삭제 후 UI 재동기화
+   - 결과/파일 목록/진단과 세션 PDF 비밀번호를 함께 초기화
+   - 파일 테이블/결과 영역/버튼 상태를 메모리 리셋 결과와 맞춤
 
 ---
 

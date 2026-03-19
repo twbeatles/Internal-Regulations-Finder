@@ -79,6 +79,11 @@ class ModelDownloadThread(BaseWorkerThread):
         # 선택된 모델 리스트, 없으면 전체
         self.models = selected_models or list(AppConfig.AVAILABLE_MODELS.items())
 
+    def _cancel_message(self) -> str:
+        if getattr(sys, "frozen", False):
+            return "다운로드 취소됨 (현재 모델 완료 후 중단)"
+        return "다운로드 취소됨"
+
     def _run_download_subprocess(self, model_id: str, cache_dir: str, device: str) -> int:
         script = (
             "import sys\n"
@@ -143,7 +148,15 @@ class ModelDownloadThread(BaseWorkerThread):
             
             for i, (name, model_id) in enumerate(self.models):
                 if self.is_canceled():
-                    self.finished.emit(TaskResult(False, "다운로드 취소됨", op_id=self.op_id, error_code="DOWNLOAD_CANCELED"))
+                    self.finished.emit(
+                        TaskResult(
+                            False,
+                            self._cancel_message(),
+                            {"downloaded": downloaded, "cache_dir": cache_dir},
+                            op_id=self.op_id,
+                            error_code="DOWNLOAD_CANCELED",
+                        )
+                    )
                     return
                 
                 percent = int((i / total) * 100)
@@ -153,13 +166,29 @@ class ModelDownloadThread(BaseWorkerThread):
                     if getattr(sys, "frozen", False):
                         # onefile 환경에서는 sys.executable -c 실행이 불가능할 수 있어 in-process 폴백
                         if self.is_canceled():
-                            self.finished.emit(TaskResult(False, "다운로드 취소됨", op_id=self.op_id, error_code="DOWNLOAD_CANCELED"))
+                            self.finished.emit(
+                                TaskResult(
+                                    False,
+                                    self._cancel_message(),
+                                    {"downloaded": downloaded, "cache_dir": cache_dir},
+                                    op_id=self.op_id,
+                                    error_code="DOWNLOAD_CANCELED",
+                                )
+                            )
                             return
                         self._run_download_in_process(model_id, cache_dir, device)
                     else:
                         ret = self._run_download_subprocess(model_id, cache_dir, device)
                         if ret == -1:
-                            self.finished.emit(TaskResult(False, "다운로드 취소됨", op_id=self.op_id, error_code="DOWNLOAD_CANCELED"))
+                            self.finished.emit(
+                                TaskResult(
+                                    False,
+                                    self._cancel_message(),
+                                    {"downloaded": downloaded, "cache_dir": cache_dir},
+                                    op_id=self.op_id,
+                                    error_code="DOWNLOAD_CANCELED",
+                                )
+                            )
                             return
                         if ret != 0:
                             raise RuntimeError(f"서브프로세스 종료 코드: {ret}")

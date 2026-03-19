@@ -194,6 +194,9 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
         self._vector_ready = bool(self.vector_store)
         self._index_search_mode = self._resolve_search_mode(hybrid=True)
 
+    def get_search_mode(self, hybrid: bool = True) -> str:
+        return self._resolve_search_mode(hybrid)
+
     def _update_memory_warning(self) -> None:
         chunk_count = len(self.documents)
         self._memory_warning_chunks = chunk_count
@@ -373,9 +376,9 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
             for key in affected_keys
         }
 
-        if deleted_keys:
-            progress_cb(20, "삭제된 파일 정리 중...")
-            text_cache.delete_files(sorted(deleted_keys))
+        if affected_keys:
+            progress_cb(20, "변경 파일 정리 중...")
+            text_cache.delete_files(sorted(affected_keys))
 
         failed: List[str] = []
         replacements: List[TextCacheReplacement] = []

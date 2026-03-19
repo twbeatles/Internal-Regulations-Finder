@@ -326,6 +326,61 @@ def test_process_documents_returns_partial_success_when_vector_build_fails(monke
     assert search_result.data[0]["score"] == search_result.data[0]["bm25_score"]
 
 
+def test_process_documents_drops_stale_cache_when_modified_file_reextract_fails(monkeypatch, tmp_path):
+    folder = tmp_path / "docs"
+    folder.mkdir()
+    stale_fp = folder / "sample.txt"
+    stable_fp = folder / "other.txt"
+    stale_fp.write_text("old content", encoding="utf-8")
+    stable_fp.write_text("other content", encoding="utf-8")
+
+    qa = RegulationQASystem()
+    qa.cache_path = str(tmp_path / "cache")
+    qa.embedding_model = object()
+    qa.model_id = "demo/model-a"
+
+    class _SwitchingExtractor:
+        fail_modified = False
+
+        def extract(self, path: str, pdf_password=None, ocr_engine=None):
+            if self.fail_modified and path == str(stale_fp):
+                return "", "forced fail"
+            return Path(path).read_text(encoding="utf-8"), None
+
+    extractor = _SwitchingExtractor()
+    monkeypatch.setattr(RegulationQASystem, "_import_text_splitter", lambda self: _FakeSplitter)
+    monkeypatch.setattr(RegulationQASystem, "_import_document_class", lambda self: _FakeDocument)
+    monkeypatch.setattr(RegulationQASystem, "_build_vector_store_from_memory", lambda self, cancel_check=None: False)
+    qa.extractor = cast(Any, extractor)
+
+    discovered_files = FileUtils.discover_files(
+        str(folder),
+        recursive=False,
+        supported_extensions=AppConfig.SUPPORTED_EXTENSIONS,
+    )
+    first_result = qa.process_documents(str(folder), discovered_files, lambda *_: None)
+    assert first_result.success is True
+
+    stale_fp.write_text("new content", encoding="utf-8")
+    extractor.fail_modified = True
+    updated_files = FileUtils.discover_files(
+        str(folder),
+        recursive=False,
+        supported_extensions=AppConfig.SUPPORTED_EXTENSIONS,
+    )
+    second_result = qa.process_documents(str(folder), updated_files, lambda *_: None)
+
+    stale_search = qa.search("old", k=5, hybrid=True)
+    stable_search = qa.search("other", k=5, hybrid=True)
+
+    assert second_result.success is True
+    assert any("sample.txt (forced fail)" in item for item in second_result.failed_items)
+    assert stale_search.success is True
+    assert stale_search.data == []
+    assert stable_search.success is True
+    assert stable_search.data[0]["source"] == "other.txt"
+
+
 def test_search_scores_do_not_use_vector_or_bm25_weight_ceiling():
     qa = RegulationQASystem()
     qa.documents = ["휴가 규정 본문"]

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import csv
 import json
 import os
 from datetime import datetime
@@ -130,7 +131,7 @@ class MainWindowInsightsMixin:
 
         self.bookmark_table = QTableWidget()
         self.bookmark_table.setColumnCount(4)
-        self.bookmark_table.setHorizontalHeaderLabels(["시간", "검색어", "파일", "랭킹점수"])
+        self.bookmark_table.setHorizontalHeaderLabels(["시간", "검색어", "파일", "랭킹 점수"])
         header = self.bookmark_table.horizontalHeader()
         if header is not None:
             header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
@@ -245,6 +246,34 @@ class MainWindowInsightsMixin:
             self._schedule_diagnostics_refresh()
             self._show_status("✅ 북마크 삭제됨", "#10b981", 2000)
 
+    def _write_bookmarks_export_file(self, file_path: str) -> None:
+        self = _as_window(self)
+        is_csv = file_path.lower().endswith(".csv")
+        if is_csv:
+            with open(file_path, "w", encoding="utf-8", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(["시간", "검색어", "파일", "랭킹 점수", "내용"])
+                for item in self.bookmarks.items:
+                    score_value = max(0, min(100, int(round(float(item.get("score", 0) or 0) * 100))))
+                    writer.writerow([
+                        str(item.get("ts", "") or ""),
+                        str(item.get("query", "") or ""),
+                        str(item.get("source", "") or ""),
+                        score_value,
+                        str(item.get("content", "") or "").replace("\n", " "),
+                    ])
+            return
+
+        with open(file_path, "w", encoding="utf-8") as f:
+            for i, item in enumerate(self.bookmarks.items, 1):
+                score_value = max(0, min(100, int(round(float(item.get("score", 0) or 0) * 100))))
+                f.write(f"[{i}] {item.get('ts', '')}\n")
+                f.write(f"검색어: {item.get('query', '')}\n")
+                f.write(f"파일: {item.get('source', '')}\n")
+                f.write(f"랭킹 점수: {score_value}\n")
+                f.write(f"내용: {item.get('content', '')}\n")
+                f.write("-" * 50 + "\n")
+
     def _export_bookmarks(self) -> None:
         self = _as_window(self)
         if not self.bookmarks.items:
@@ -265,22 +294,7 @@ class MainWindowInsightsMixin:
             is_csv = True
 
         try:
-            with open(file_path, "w", encoding="utf-8") as f:
-                if is_csv:
-                    f.write("시간,검색어,파일,랭킹점수,내용\n")
-                    for item in self.bookmarks.items:
-                        content = str(item.get("content", "")).replace('"', '""').replace("\n", " ")
-                        f.write(
-                            f"\"{item.get('ts','')}\",\"{item.get('query','')}\",\"{item.get('source','')}\",{float(item.get('score',0) or 0):.2f},\"{content}\"\n"
-                        )
-                else:
-                    for i, item in enumerate(self.bookmarks.items, 1):
-                        f.write(f"[{i}] {item.get('ts','')}\n")
-                        f.write(f"검색어: {item.get('query','')}\n")
-                        f.write(f"파일: {item.get('source','')}\n")
-                        f.write(f"랭킹점수: {float(item.get('score',0) or 0):.2f}\n")
-                        f.write(f"내용: {item.get('content','')}\n")
-                        f.write("-" * 50 + "\n")
+            self._write_bookmarks_export_file(file_path)
             self._show_status(f"✅ 북마크 내보내기 완료: {os.path.basename(file_path)}", "#10b981", 3000)
         except Exception as e:
             QMessageBox.critical(self, "오류", f"북마크 내보내기 실패: {e}")
@@ -473,6 +487,7 @@ class MainWindowInsightsMixin:
             "SEARCH_FAIL": "가이드: 검색어/필터를 바꿔 재시도하고, 반복되면 상세 보기를 공유하세요.",
             "DOWNLOAD_FAIL": "가이드: 인터넷 연결과 디스크 여유 공간을 확인하세요.",
             "DOWNLOAD_PARTIAL_FAIL": "가이드: 실패한 모델만 다시 선택해 재다운로드하세요.",
+            "DOWNLOAD_CANCELED": "가이드: onefile(EXE) 환경에서는 현재 모델 다운로드가 끝난 뒤 중단될 수 있습니다.",
             "DIAG_EXPORT_FAIL": "가이드: 저장 경로 권한과 디스크 공간을 확인하세요.",
         }
         msg = QMessageBox(self)

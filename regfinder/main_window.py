@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import csv
 import os
+import sys
 from datetime import datetime
 
 from PyQt6.QtCore import QTimer, Qt
@@ -22,7 +24,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from .app_types import AppConfig, FileStatus, ModelDownloadStateMap, TaskResult
+from .app_types import AppConfig, DiscoveredFile, FileStatus, ModelDownloadStateMap, TaskResult
 from .file_utils import FileUtils
 from .model_inventory import ModelInventory
 from .qa_system import RegulationQASystem
@@ -32,6 +34,7 @@ from .main_window_ui_mixin import MainWindowUIBuilderMixin
 from .main_window_mixins import MainWindowConfigMixin, MainWindowInsightsMixin
 from .ui_components import (
     EmptyStateWidget,
+    PdfPasswordDialog,
     ProgressDialog,
     ResultCard,
     SearchHistory,
@@ -66,6 +69,7 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         self.keep_search_text = True
         self.sort_by = "score_desc"
         self.search_filters = {"extension": "", "filename": "", "path": ""}
+        self.pdf_passwords: dict[str, str] = {}
         self.status_timer = None  # 상태 레이블 타이머 관리
         
         self._load_config()
@@ -77,6 +81,126 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
     def _set_search_controls_enabled(self, enabled: bool) -> None:
         self.search_input.setEnabled(enabled)
         self.search_btn.setEnabled(enabled)
+
+    def _clear_session_pdf_passwords(self) -> None:
+        self.pdf_passwords.clear()
+
+    def _reset_last_search_state(self) -> None:
+        self.last_search_results = []
+        self.last_search_query = ""
+
+    def _current_search_mode(self) -> str:
+        return self.qa.get_search_mode(self.hybrid)
+
+    def _prepare_pdf_passwords(self, files: list[DiscoveredFile]) -> dict[str, str] | None:
+        encrypted_files: list[DiscoveredFile] = []
+        for discovered in files:
+            if discovered.extension != ".pdf":
+                continue
+            encrypted, error = self.qa.extractor.check_pdf_encrypted(discovered.path)
+            if error:
+                logger.warning(f"PDF 암호화 검사 실패: {discovered.path} - {error}")
+                continue
+            if encrypted:
+                encrypted_files.append(discovered)
+                continue
+            self.pdf_passwords.pop(discovered.path, None)
+
+        if not encrypted_files:
+            return {}
+
+        if not any(not self.pdf_passwords.get(item.path, "") for item in encrypted_files):
+            return {
+                item.path: self.pdf_passwords[item.path]
+                for item in encrypted_files
+                if self.pdf_passwords.get(item.path, "")
+            }
+
+        dialog = PdfPasswordDialog(
+            [
+                {
+                    "path": item.path,
+                    "label": item.rel_path,
+                    "password": self.pdf_passwords.get(item.path, ""),
+                }
+                for item in encrypted_files
+            ],
+            self,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+
+        for path, password in dialog.passwords().items():
+            cleaned = password.strip()
+            if cleaned:
+                self.pdf_passwords[path] = cleaned
+                continue
+            self.pdf_passwords.pop(path, None)
+
+        return {
+            item.path: self.pdf_passwords[item.path]
+            for item in encrypted_files
+            if self.pdf_passwords.get(item.path, "")
+        }
+
+    def _purge_failed_pdf_passwords(self) -> None:
+        for info in self.qa.get_file_infos():
+            if info.extension != ".pdf":
+                continue
+            if "비밀번호" not in str(info.error or ""):
+                continue
+            self.pdf_passwords.pop(info.path, None)
+
+    def _handle_download_cancel_requested(self, worker: ModelDownloadThread) -> None:
+        if getattr(sys, "frozen", False) and getattr(self, "progress_dialog", None) is not None:
+            self.progress_dialog.set_cancel_pending(
+                "현재 모델 다운로드가 끝나면 중단됩니다.",
+                button_text="중단 요청됨",
+            )
+        worker.cancel()
+
+    def _sync_ui_after_index_reset(self, *, empty_state: str = "welcome", search_from_model: bool = True) -> None:
+        self._reset_last_search_state()
+        self._update_file_table()
+        self._show_empty_state(empty_state)
+        self._update_internal_state_display()
+        self._schedule_diagnostics_refresh()
+
+        model_ready = self.qa.embedding_model is not None if search_from_model else False
+        self._set_search_controls_enabled(model_ready)
+        self.folder_btn.setEnabled(model_ready)
+        self.refresh_btn.setEnabled(bool(self.last_folder) and model_ready)
+        self.recent_btn.setEnabled(any(os.path.isdir(p) for p in self.recents.get()))
+
+    def _write_results_export_file(self, file_path: str) -> None:
+        is_csv = file_path.lower().endswith(".csv")
+        if is_csv:
+            with open(file_path, "w", encoding="utf-8", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(["순위", "랭킹 점수", "파일", "근거 청크 수", "내용"])
+                for i, item in enumerate(self.last_search_results, 1):
+                    score_value = max(0, min(100, int(round(float(item.get("score", 0) or 0) * 100))))
+                    writer.writerow([
+                        i,
+                        score_value,
+                        str(item.get("source", "") or ""),
+                        int(item.get("match_count", 1) or 1),
+                        str(item.get("content", "") or "").replace("\n", " "),
+                    ])
+            return
+
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(f"검색어: {self.last_search_query}\n")
+            f.write(f"결과 수: {len(self.last_search_results)}\n")
+            f.write("=" * 50 + "\n\n")
+            for i, item in enumerate(self.last_search_results, 1):
+                score_value = max(0, min(100, int(round(float(item.get("score", 0) or 0) * 100))))
+                f.write(f"[결과 {i}]\n")
+                f.write(f"랭킹 점수: {score_value}\n")
+                f.write(f"파일: {item['source']}\n")
+                f.write(f"근거 청크: {int(item.get('match_count', 1) or 1)}개\n")
+                f.write("-" * 30 + "\n")
+                f.write(str(item.get("content", "") or "") + "\n\n")
 
     def _schedule_diagnostics_refresh(self, delay_ms: int = 120) -> None:
         existing = getattr(self, "_diagnostics_refresh_timer", None)
@@ -189,13 +313,13 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             self, "확인",
             "모델을 변경하면 현재 로드된 문서 인덱스가 초기화됩니다.\n계속하시겠습니까?"
         ) == QMessageBox.StandardButton.Yes:
+            self._clear_session_pdf_passwords()
             self.qa.reset_runtime_state(reset_model=False)
             
             # UI 초기화
             self._set_search_controls_enabled(False)
             self.refresh_btn.setEnabled(False)
-            self._show_empty_state("welcome")
-            self.file_table.setRowCount(0)
+            self._sync_ui_after_index_reset(empty_state="welcome", search_from_model=False)
             
             # 모델 재로드
             self._save_config()
@@ -229,6 +353,10 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         if not files:
             QMessageBox.warning(self, "경고", f"지원되는 파일이 없습니다.\n\n지원 형식: {', '.join(AppConfig.SUPPORTED_EXTENSIONS)}")
             return
+
+        pdf_passwords = self._prepare_pdf_passwords(files)
+        if pdf_passwords is None:
+            return
         
         self.folder_label.setText(folder)
         self.folder_label.setToolTip(folder)
@@ -241,7 +369,7 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         self.progress_dialog.move(dialog_x, dialog_y)
         self.progress_dialog.show()
         
-        worker = DocumentProcessorThread(self.qa, folder, files)
+        worker = DocumentProcessorThread(self.qa, folder, files, pdf_passwords=pdf_passwords)
         worker.progress.connect(self.progress_dialog.update_progress)
         worker.finished.connect(lambda r: self._on_folder_done(r, folder))
         worker.finished.connect(lambda *_: self.workers.clear("docs"))
@@ -258,6 +386,7 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         self.folder_btn.setEnabled(True)
         
         if result.success:
+            self._purge_failed_pdf_passwords()
             self.last_folder = folder
             self.recents.add(folder)
             self._save_config()
@@ -302,7 +431,7 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
                 QMessageBox.warning(
                     self, 
                     "일부 파일 처리 실패",
-                    f"{failed_count}개 파일 처리 실패:\n\n{failed_list}{more_msg}"
+                    f"{failed_count}개 파일 처리 실패:\n\n{failed_list}{more_msg}\n\n실패한 파일은 이번 인덱스에서 제외되었습니다."
                 )
         else:
             self._show_status(f"❌ {result.message}", "#ef4444")
@@ -368,7 +497,10 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         query = self.search_input.text().strip()
         if not query:
             return
-        if not self.qa.vector_store:
+        if self.qa.embedding_model is None:
+            QMessageBox.warning(self, "경고", "모델을 먼저 로드하세요")
+            return
+        if not self._current_search_mode():
             QMessageBox.warning(self, "경고", "문서를 먼저 로드하세요")
             return
         
@@ -499,25 +631,9 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             return
         
         try:
-            is_csv = file_path.lower().endswith('.csv')
-            
-            with open(file_path, 'w', encoding='utf-8') as f:
-                if is_csv:
-                    f.write("순위,랭킹점수,파일,근거청크수,내용\n")
-                    for i, item in enumerate(self.last_search_results, 1):
-                        content = item['content'].replace('"', '""').replace('\n', ' ')
-                        f.write(f'{i},{item["score"]:.2f},"{item["source"]}",{int(item.get("match_count", 1) or 1)},"{content}"\n')
-                else:
-                    f.write(f"검색어: {self.last_search_query}\n")
-                    f.write(f"결과 수: {len(self.last_search_results)}\n")
-                    f.write("=" * 50 + "\n\n")
-                    
-                    for i, item in enumerate(self.last_search_results, 1):
-                        f.write(f"[결과 {i}] (랭킹 {int(item['score']*100)})\n")
-                        f.write(f"파일: {item['source']}\n")
-                        f.write(f"근거 청크: {int(item.get('match_count', 1) or 1)}개\n")
-                        f.write("-" * 30 + "\n")
-                        f.write(item['content'] + "\n\n")
+            if not file_path.lower().endswith((".txt", ".csv")):
+                file_path += ".txt"
+            self._write_results_export_file(file_path)
             
             self._show_status(f"✅ 결과 내보내기 완료: {os.path.basename(file_path)}", "#10b981", 3000)
         except Exception as e:
@@ -654,10 +770,10 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
     def _clear_cache(self):
         if QMessageBox.question(self, "확인", "캐시를 삭제하시겠습니까?") == QMessageBox.StandardButton.Yes:
             self.qa.clear_cache()
+            self._clear_session_pdf_passwords()
+            self._sync_ui_after_index_reset(empty_state="welcome")
             self._update_cache_size_display(refresh_async=False)
-            self._update_internal_state_display()
-            self._schedule_diagnostics_refresh()
-            self._show_status("✅ 캐시 삭제됨", "#10b981", 3000)
+            self._show_status("✅ 캐시 삭제됨. 폴더를 다시 로드하세요.", "#10b981", 3000)
     
     def _clear_history(self):
         if QMessageBox.question(self, "확인", "히스토리를 삭제하시겠습니까?") == QMessageBox.StandardButton.Yes:
@@ -861,7 +977,7 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             worker.finished.connect(self._on_download_done)
             worker.finished.connect(lambda *_: self.workers.clear("download"))
             worker.finished.connect(lambda *_: worker.deleteLater())
-            self.progress_dialog.canceled.connect(worker.cancel)
+            self.progress_dialog.canceled.connect(lambda *_: self._handle_download_cancel_requested(worker))
             self.workers.set("download", worker)
             worker.start()
         except Exception as e:
@@ -889,6 +1005,9 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             QMessageBox.information(self, "완료", f"✅ {result.message}")
         else:
             msg = f"❌ {result.message}"
+            downloaded_names = list((result.data or {}).get("downloaded", []) or [])
+            if downloaded_names:
+                msg += "\n\n완료된 모델:\n" + "\n".join(downloaded_names[:5])
             if result.failed_items:
                 msg += "\n\n실패한 모델:\n" + "\n".join(result.failed_items[:5])
             r = TaskResult(
@@ -908,6 +1027,7 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         if progress_dialog is not None:
             progress_dialog.close()
             progress_dialog.deleteLater()
+        self._clear_session_pdf_passwords()
         self._save_config()
         self.config_manager.flush()
         self.search_logs.flush()

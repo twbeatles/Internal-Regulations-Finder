@@ -1,6 +1,9 @@
 {
   "pythonVersion": "3.14",
   "typeCheckingMode": "standard",
+  "reportMissingImports": "none",
+  "reportMissingModuleSource": "none",
+  "reportMissingTypeStubs": "none",
   "include": [
     "regfinder",
     "tests",
@@ -10,10 +13,22 @@
   "exclude": [
     "**/__pycache__",
     ".pytest_cache",
+    ".pytest_localappdata",
+    ".regfinder_logs",
     "build",
     "dist",
     "docs",
     "logs",
-    "artifacts"
+    "artifacts",
+    "models",
+    "__pycache__"
+  ],
+  "executionEnvironments": [
+    {
+      "root": ".",
+      "extraPaths": [
+        "."
+      ]
+    }
   ]
 }

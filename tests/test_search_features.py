@@ -48,6 +48,53 @@ class SearchFeatureTest(unittest.TestCase):
         out = self.qa._sort_results(self.sample, "mtime_desc")
         self.assertEqual(out[0]["mtime"], 200.0)
 
+    def test_aggregate_file_results_collects_matched_chunk_indices(self):
+        aggregated = self.qa._aggregate_file_results(
+            [
+                {
+                    "id": "file-a#2",
+                    "file_key": "file-a",
+                    "chunk_idx": 2,
+                    "content": "두 번째 청크",
+                    "source": "휴가규정.pdf",
+                    "path": "C:/reg/휴가규정.pdf",
+                    "mtime": 100.0,
+                    "vec_score": 0.8,
+                    "bm25_score": 0.3,
+                },
+                {
+                    "id": "file-a#0",
+                    "file_key": "file-a",
+                    "chunk_idx": 0,
+                    "content": "첫 번째 청크",
+                    "source": "휴가규정.pdf",
+                    "path": "C:/reg/휴가규정.pdf",
+                    "mtime": 100.0,
+                    "vec_score": 0.5,
+                    "bm25_score": 0.9,
+                },
+            ],
+            search_mode="hybrid",
+        )
+
+        self.assertEqual(len(aggregated), 1)
+        self.assertEqual(aggregated[0]["match_count"], 2)
+        self.assertEqual(aggregated[0]["matched_chunk_indices"], [0, 2])
+        self.assertEqual(aggregated[0]["matched_doc_ids"], ["file-a#0", "file-a#2"])
+
+    def test_get_chunks_for_file_key_returns_sorted_chunks(self):
+        self.qa.documents = ["세 번째", "첫 번째", "두 번째"]
+        self.qa.doc_meta = [
+            {"id": "file-a#2", "file_key": "file-a", "chunk_idx": 2, "source": "규정.pdf", "path": "C:/reg/규정.pdf", "mtime": 3},
+            {"id": "file-a#0", "file_key": "file-a", "chunk_idx": 0, "source": "규정.pdf", "path": "C:/reg/규정.pdf", "mtime": 3},
+            {"id": "file-a#1", "file_key": "file-a", "chunk_idx": 1, "source": "규정.pdf", "path": "C:/reg/규정.pdf", "mtime": 3},
+        ]
+
+        chunks = self.qa.get_chunks_for_file_key("file-a")
+
+        self.assertEqual([chunk["chunk_idx"] for chunk in chunks], [0, 1, 2])
+        self.assertEqual([chunk["content"] for chunk in chunks], ["첫 번째", "두 번째", "세 번째"])
+
 
 if __name__ == "__main__":
     unittest.main()

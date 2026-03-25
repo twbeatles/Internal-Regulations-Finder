@@ -68,6 +68,14 @@ class ModelDownloadState(TypedDict):
 ModelDownloadStateMap: TypeAlias = Dict[str, ModelDownloadState]
 
 
+class SearchHistoryEntry(TypedDict):
+    q: str
+    filters: Dict[str, str]
+    sort_by: str
+    k: int
+    hybrid: bool
+
+
 @dataclass(frozen=True)
 class DiscoveredFile:
     path: str

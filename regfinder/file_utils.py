@@ -37,7 +37,10 @@ class FileUtils:
     def get_metadata(path: str) -> Optional[Dict]:
         try:
             stat = os.stat(path)
-            return {'size': stat.st_size, 'mtime': stat.st_mtime}
+            mtime = getattr(stat, "st_mtime_ns", None)
+            if mtime is None:
+                mtime = int(stat.st_mtime * 1_000_000_000)
+            return {'size': stat.st_size, 'mtime': float(mtime)}
         except OSError as e:
             logger.debug(f"파일 메타데이터 조회 실패: {path} - {e}")
             return None
@@ -77,7 +80,7 @@ class FileUtils:
             name=name,
             extension=extension,
             size=int(stat_result.st_size),
-            mtime=float(stat_result.st_mtime),
+            mtime=float(getattr(stat_result, "st_mtime_ns", int(stat_result.st_mtime * 1_000_000_000))),
             file_key=rel_path,
         )
 

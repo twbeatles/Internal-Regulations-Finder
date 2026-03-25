@@ -7,7 +7,9 @@
 - 워커 관리는 `WorkerRegistry`로 통합
 - 설정은 `ConfigManager`(schema_version=3) 기반으로 마이그레이션 처리
 - 캐시는 `CACHE_SCHEMA_VERSION=3` 기준으로 텍스트(SQLite)와 모델별 벡터 캐시로 분리
+- 텍스트 캐시 파일 메타는 fingerprint까지 저장해 same-size modified file도 stale cache 없이 판별
 - 정적 분석 기준은 `pyrightconfig.json`으로 고정
+- `pyrightconfig.json` / `.vscode/settings.json`은 optional dependency missing-import 잡음을 억제하고 내부 타입 오류를 우선 노출
 - frozen(onefile) 모델 다운로드는 subprocess 대신 in-process 경로 사용
 - frozen(onefile) 다운로드 취소는 현재 모델 완료 후 중단될 수 있음
 - 오프라인 임베딩 런타임은 `Pillow` / `scikit-learn` / `sentence_transformers` 사전검증 추가
@@ -15,6 +17,7 @@
 - 검색 정규화는 `regfinder.search_text`로 통합되어 BM25/필터/하이라이트가 같은 규칙을 사용
 - 무공백 한국어 질의와 조사 제거 기반 semantic matching을 지원
 - 검색 결과는 파일 단위로 그룹화되며 `match_count`, `snippet_chunk_idx`를 함께 유지
+- 검색 결과는 `matched_chunk_indices`, `matched_doc_ids`까지 유지해 상세 보기에서 근거 청크 이동 가능
 - 벡터 인덱스 실패 시에도 GUI에서 `bm25_only` 검색 모드로 계속 검색 가능
 - 수정 파일 재추출 실패 시 기존 텍스트/청크는 현재 인덱스에서 제거되어 stale 검색 결과를 막음
 - 암호화 PDF는 폴더 로드 전 사전 검사 후 파일별 비밀번호를 세션 메모리로 재사용
@@ -31,6 +34,10 @@
 - 검색 필터: 확장자/파일명/경로
 - 검색 정렬: 점수순/파일명순/최근 수정순
 - 파일 단위 검색 결과, 대표 청크, 근거 청크 수 표시
+- 검색 중 기존 결과 유지 + 인라인 진행 카드/취소 + 적용 필터/정렬/모드 표시
+- 무결과 시 필터 요약과 `필터 초기화` 액션 표시
+- 히스토리 선택 시 조건 전체 복원 후 즉시 재검색
+- 결과 상세 모달에서 파일 열기/경로 복사/근거 청크 이동/전체 문서 보기 제공
 - 랭킹 점수 툴팁(상대 점수 + 벡터/키워드 구성요소)
 - 암호화 PDF 사전 비밀번호 입력(세션 메모리만 사용)
 - 결과 북마크 저장/내보내기
@@ -40,10 +47,12 @@
 - 검색 후 검색어 유지 옵션
 - 경로 필터 슬래시 정규화(`/`, `\`)
 - 다운로드 실패 시 `op_id`와 실제 import 실패 패키지명을 함께 노출
-- 모델 로드 성공 직후 검색창 입력 가능
+- 모델만 로드된 상태에서는 검색 패널 비활성화, 폴더 인덱스가 준비된 뒤에만 검색 가능
 - 설정창 모델 목록은 다운로드 완료 모델을 상단 우선 정렬
 - 동일 폴더에서 모델만 바뀌면 텍스트 재추출 없이 벡터 캐시만 재생성
 - 대규모 인덱스는 hard fail 대신 경고만 표시
+- 파일/북마크 숫자 컬럼은 숫자 기준 정렬
+- 폰트 슬라이더는 현재 표시 중인 결과 카드에 즉시 반영
 
 ## 운영 규칙
 
@@ -53,6 +62,7 @@
 4. 종료 시 워커 취소 및 리소스 정리
 5. 추적 텍스트 파일은 `.editorconfig`, `.gitattributes` 기준으로 `UTF-8(no BOM)` / `LF` 유지
 6. PyInstaller 경량화 시 `PIL` / `Pillow` / `scikit-learn` / `charset_normalizer` 제외 여부를 먼저 검토
+7. 로컬 테스트/로그 산출물(`.pytest_localappdata/`, `.regfinder_logs/`)은 `.gitignore`로만 관리하고 커밋하지 않음
 
 ## 검증 명령
 

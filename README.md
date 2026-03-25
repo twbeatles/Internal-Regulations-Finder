@@ -20,11 +20,15 @@
   - 결과 점수는 퍼센트형 유사도가 아니라 상대적 `랭킹 점수`
 - 검색 UX / 운영 가시성
   - 검색 필터(확장자/파일명/경로), 정렬(`점수순`/`파일명순`/`최근 수정순`)
-  - 검색 결과 하이라이트, 검색 시간, 검색 모드 표시, TXT/CSV 내보내기
+  - 모델만 로드된 상태에서는 검색 패널을 잠그고, 실제 searchable index가 준비된 뒤에만 검색 가능
+  - 검색 중 기존 결과 유지 + 인라인 진행 카드/취소 + 적용 필터/정렬/모드/시간 표시
+  - 무결과 시 현재 필터 요약과 `필터 초기화`, 히스토리 조건 복원 후 즉시 재검색
+  - 검색 결과 하이라이트, 결과 카드 `상세 보기`, 근거 청크 이동, 전체 문서 보기, 폰트 크기 즉시 반영, TXT/CSV 내보내기
   - 검색 후 검색어 유지 옵션, 대규모 인덱스 경고, 진단 탭 제공
 - 캐시 / 성능
   - 증분 인덱싱 및 분리 캐시(텍스트 SQLite + 모델별 벡터 캐시)
   - 동일 폴더에서 모델만 바뀌면 텍스트 캐시 재사용
+  - 텍스트 캐시 파일 메타에 fingerprint를 함께 저장해 same-size modified file도 stale cache 없이 판별
   - 수정 파일 재색인 실패 시 기존 텍스트/청크를 현재 인덱스에서 제거해 stale 결과 방지
   - 필터 검색 시 적중 파일을 찾을 때까지 벡터 후보를 확장 fetch하여 거짓 음성 감소
   - 캐시 삭제 시 파일 목록/결과/진단 뷰와 세션 PDF 비밀번호를 함께 초기화
@@ -58,9 +62,11 @@ python "사내 규정검색기 v9 PyQt6.py"
 
 - `pyrightconfig.json`을 저장소 기준 Pylance/Pyright 설정으로 사용
 - 기준 타입 체크 레벨: `pythonVersion = 3.14`, `typeCheckingMode = standard`
+- optional GUI/test 의존성(`PyQt6`, `pytest`) 미설치 환경에서도 내부 타입 오류에 집중할 수 있도록 missing-import 계열 진단은 저장소 설정에서 완화
 - `.editorconfig` + `.gitattributes`로 추적 텍스트 파일의 `UTF-8(no BOM)`, `LF`, final newline 정책을 고정
-- `.vscode/settings.json`으로 VSCode의 workspace Pylance 범위와 Windows 터미널 UTF-8 Python 출력을 고정
+- `.vscode/settings.json`으로 VSCode의 workspace Pylance 범위, extra path, missing-import severity, Windows 터미널 UTF-8 Python 출력을 고정
 - `ModelDownloadState` 타입 계약과 `tests/test_repo_text_encoding.py` 회귀 테스트로 모델 상태 추론/인코딩 검증을 고정
+- `.gitignore`는 `.pytest_localappdata/`, `.regfinder_logs/` 같은 로컬 테스트/로그 디렉터리도 추적에서 제외
 - PyInstaller spec은 `pytest`, `pyright` 같은 개발 전용 도구를 번들에서 제외
 - PyInstaller onefile 번들은 오프라인 모델 다운로드와 lazy 인코딩 fallback, 검색 정규화 helper를 위해 필요한 런타임 모듈을 포함
 
@@ -77,7 +83,7 @@ python "사내 규정검색기 v9 PyQt6.py"
 | `regfinder/worker_registry.py` | 작업 종류별 워커 레지스트리 |
 | `regfinder/file_utils.py` | 파일 읽기/발견(scandir)/메타/열기/크기 포맷 |
 | `regfinder/document_extractor.py` | TXT/DOCX/PDF/HWP 추출(+PDF 비밀번호/OCR 훅) |
-| `regfinder/text_cache.py` | 텍스트 캐시(SQLite) |
+| `regfinder/text_cache.py` | 텍스트 캐시(SQLite, file fingerprint) |
 | `regfinder/search_text.py` | 공용 검색 정규화/토큰화/필터 매칭 helper |
 | `regfinder/bm25.py` | BM25Index 검색 |
 | `regfinder/qa_system.py` | 인덱싱/검색/텍스트 캐시+벡터 캐시 핵심 |

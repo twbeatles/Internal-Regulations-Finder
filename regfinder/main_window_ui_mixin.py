@@ -144,6 +144,7 @@ class MainWindowUIBuilderMixin:
         """폴더 열기 및 새로고침 패널 생성"""
         self = _as_window(self)
         panel = QFrame()
+        self.folder_control_panel = panel
         panel.setObjectName("card")
         layout = QHBoxLayout(panel)
         layout.setContentsMargins(15, 12, 15, 12)
@@ -174,6 +175,7 @@ class MainWindowUIBuilderMixin:
         """검색 입력 및 설정 패널 생성"""
         self = _as_window(self)
         panel = QFrame()
+        self.search_input_panel = panel
         panel.setObjectName("card")
         layout = QHBoxLayout(panel)
         layout.setContentsMargins(15, 12, 15, 12)
@@ -189,6 +191,7 @@ class MainWindowUIBuilderMixin:
         self.filename_filter_input.setToolTip("파일명 포함 필터")
         self.filename_filter_input.setFixedWidth(140)
         self.filename_filter_input.setText(self.search_filters.get("filename", ""))
+        self.filename_filter_input.setEnabled(False)
         layout.addWidget(self.filename_filter_input)
 
         self.path_filter_input = QLineEdit()
@@ -196,6 +199,7 @@ class MainWindowUIBuilderMixin:
         self.path_filter_input.setToolTip("전체 경로 포함 필터")
         self.path_filter_input.setFixedWidth(160)
         self.path_filter_input.setText(self.search_filters.get("path", ""))
+        self.path_filter_input.setEnabled(False)
         layout.addWidget(self.path_filter_input)
 
         self.ext_filter_combo = QComboBox()
@@ -205,6 +209,7 @@ class MainWindowUIBuilderMixin:
             self.ext_filter_combo.addItem(ext, ext)
         idx = self.ext_filter_combo.findData(self.search_filters.get("extension", ""))
         self.ext_filter_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self.ext_filter_combo.setEnabled(False)
         layout.addWidget(self.ext_filter_combo)
 
         self.sort_combo = QComboBox()
@@ -214,12 +219,14 @@ class MainWindowUIBuilderMixin:
         self.sort_combo.addItem("최근 수정순", "mtime_desc")
         sort_idx = self.sort_combo.findData(self.sort_by)
         self.sort_combo.setCurrentIndex(sort_idx if sort_idx >= 0 else 0)
+        self.sort_combo.setEnabled(False)
         layout.addWidget(self.sort_combo)
 
         self.history_btn = QPushButton("🕑")
         self.history_btn.setFixedWidth(40)
         self.history_btn.setToolTip("최근 검색어")
         self.history_btn.clicked.connect(self._show_history_menu)
+        self.history_btn.setEnabled(False)
         layout.addWidget(self.history_btn)
 
         self.k_spin = QSpinBox()
@@ -227,6 +234,7 @@ class MainWindowUIBuilderMixin:
         self.k_spin.setValue(AppConfig.DEFAULT_SEARCH_RESULTS)
         self.k_spin.setPrefix("결과: ")
         self.k_spin.setFixedWidth(100)
+        self.k_spin.setEnabled(False)
         layout.addWidget(self.k_spin)
 
         self.search_btn = QPushButton("🔍 검색")
@@ -339,19 +347,19 @@ class MainWindowUIBuilderMixin:
         model_layout.addWidget(self.model_selection_label)
 
         model_btn_row = QHBoxLayout()
-        reload_model_btn = QPushButton("🔄 모델 즉시 변경")
-        reload_model_btn.clicked.connect(self._reload_model)
-        model_btn_row.addWidget(reload_model_btn)
+        self.reload_model_btn = QPushButton("🔄 모델 즉시 변경")
+        self.reload_model_btn.clicked.connect(self._reload_model)
+        model_btn_row.addWidget(self.reload_model_btn)
 
         self.prefer_downloaded_btn = QPushButton("✅ 다운로드 모델 우선 선택")
         self.prefer_downloaded_btn.setToolTip("다운로드 완료된 모델 중 첫 번째를 현재 선택으로 맞춥니다")
         self.prefer_downloaded_btn.clicked.connect(lambda *_: self._select_preferred_downloaded_model())
         model_btn_row.addWidget(self.prefer_downloaded_btn)
 
-        download_all_btn = QPushButton("📥 오프라인 모델 다운로드")
-        download_all_btn.setToolTip("선택한 모델을 사전 다운로드하여 오프라인에서 사용")
-        download_all_btn.clicked.connect(self._download_all_models)
-        model_btn_row.addWidget(download_all_btn)
+        self.download_all_btn = QPushButton("📥 오프라인 모델 다운로드")
+        self.download_all_btn.setToolTip("선택한 모델을 사전 다운로드하여 오프라인에서 사용")
+        self.download_all_btn.clicked.connect(self._download_all_models)
+        model_btn_row.addWidget(self.download_all_btn)
         model_btn_row.addStretch()
         model_layout.addLayout(model_btn_row)
 
@@ -369,13 +377,13 @@ class MainWindowUIBuilderMixin:
         data_card = self._create_setting_card("🗂️ 데이터 관리")
         data_layout = self._card_layout(data_card)
         btn_row = QHBoxLayout()
-        clear_cache_btn = QPushButton("🗑️ 캐시 삭제")
-        clear_cache_btn.setStyleSheet("background: #dc2626;")
-        clear_cache_btn.clicked.connect(self._clear_cache)
-        btn_row.addWidget(clear_cache_btn)
-        clear_history_btn = QPushButton("🕐 히스토리 삭제")
-        clear_history_btn.clicked.connect(self._clear_history)
-        btn_row.addWidget(clear_history_btn)
+        self.clear_cache_btn = QPushButton("🗑️ 캐시 삭제")
+        self.clear_cache_btn.setStyleSheet("background: #dc2626;")
+        self.clear_cache_btn.clicked.connect(self._clear_cache)
+        btn_row.addWidget(self.clear_cache_btn)
+        self.clear_history_btn = QPushButton("🕐 히스토리 삭제")
+        self.clear_history_btn.clicked.connect(self._clear_history)
+        btn_row.addWidget(self.clear_history_btn)
         diag_btn = QPushButton("🧰 진단 내보내기")
         diag_btn.setToolTip("환경/설정/로그/캐시 요약을 zip으로 내보냅니다.\n(문서 원문/청크 내용/벡터 인덱스는 포함하지 않음)")
         diag_btn.clicked.connect(self._export_diagnostics)

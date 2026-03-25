@@ -166,21 +166,28 @@ def setup_logger() -> logging.Logger:
     logger = logging.getLogger('RegSearch')
     if logger.handlers:
         return logger
-        
-    logger.setLevel(logging.INFO)
-    log_dir = get_logs_directory()
-    os.makedirs(log_dir, exist_ok=True)
     
-    # 파일 로거 (10MB, 3개 파일 순환)
-    fh = RotatingFileHandler(
-        os.path.join(log_dir, 'app.log'),
-        maxBytes=10*1024*1024,  # 10MB
-        backupCount=3,
-        encoding='utf-8'
-    )
+    logger.setLevel(logging.INFO)
     fmt = '%(asctime)s - %(levelname)s - [%(threadName)s] [op:%(op_id)s] %(message)s'
-    fh.setFormatter(logging.Formatter(fmt, defaults={"op_id": "-"}))
-    logger.addHandler(fh)
+
+    def _attach_file_handler(log_dir: str) -> bool:
+        try:
+            os.makedirs(log_dir, exist_ok=True)
+            handler = RotatingFileHandler(
+                os.path.join(log_dir, 'app.log'),
+                maxBytes=10*1024*1024,  # 10MB
+                backupCount=3,
+                encoding='utf-8'
+            )
+            handler.setFormatter(logging.Formatter(fmt, defaults={"op_id": "-"}))
+            logger.addHandler(handler)
+            return True
+        except Exception:
+            return False
+
+    if not _attach_file_handler(get_logs_directory()):
+        fallback_dir = os.path.join(os.getcwd(), ".regfinder_logs")
+        _attach_file_handler(fallback_dir)
     
     # 콘솔 로거 (개발 환경용)
     if not getattr(sys, 'frozen', False):

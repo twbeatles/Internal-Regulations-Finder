@@ -64,6 +64,20 @@
 
 ---
 
+## Phase 5: UI/UX Consistency / Typing Hygiene
+
+| Source | Extracted/Added | Purpose |
+|---|---|---|
+| `regfinder/main_window.py` | busy-state orchestration | model/docs/download는 strong busy, search는 inline busy로 분리 |
+| `regfinder/ui_components.py` | `SearchProgressCard`, `ResultDetailDialog` | 검색 진행 표시/취소, 결과 상세 탐색 |
+| `regfinder/ui_components.py` | expanded `SearchHistory` schema | `q + filters + sort_by + k + hybrid` 저장 |
+| `regfinder/main_window.py` / `regfinder/main_window_mixins.py` | numeric table items | 파일/북마크 숫자 정렬 정합화 |
+| `regfinder/runtime.py` | writable logger fallback | sandbox/test/import 환경에서 로그 초기화 실패 방지 |
+| `regfinder/text_cache.py` | file fingerprint metadata | same-size modified file stale cache 탐지 강화 |
+| 저장소 루트 | `pyrightconfig.json`, `.vscode/settings.json`, `.gitignore` | Pyright/Pylance/로컬 temp/log 정합성 유지 |
+
+---
+
 ## Compatibility Notes
 
 - 실행 엔트리 유지: `python "사내 규정검색기 v9 PyQt6.py"`
@@ -74,6 +88,7 @@
 - spec은 offline embeddings를 위해 `sentence-transformers` / `scikit-learn` / `pillow` 메타데이터를 포함
 - lazy 인코딩 fallback을 위해 `charset_normalizer`는 spec에서 제외 금지
 - 정적 분석 기준은 `pyrightconfig.json`으로 저장소 루트에 고정
+- `pyrightconfig.json` / `.vscode/settings.json`은 optional dependency missing-import 노이즈를 낮추되 내부 타입 오류는 유지
 - 텍스트 인코딩/줄바꿈 정책은 `.editorconfig` + `.gitattributes`로 고정
 - VSCode workspace 설정은 `.vscode/settings.json`으로 UTF-8/Pylance 범위를 고정
 - 모델 다운로드 상태 UI는 `ModelDownloadState` 타입 계약으로 강타입화
@@ -88,3 +103,4 @@
 - `tests/test_repo_text_encoding.py`로 UTF-8 디코딩/replacement char 회귀 검증 유지
 - Windows PowerShell/Python 출력 모지바케는 실제 저장소 파일 손상과 분리해 판단
 - 런타임 로컬 상태 파일과 결과 내보내기 산출물은 `.gitignore`로 분리 관리
+- `.pytest_localappdata/`, `.regfinder_logs/`는 로컬 테스트/로그 디렉터리로 커밋 대상이 아님

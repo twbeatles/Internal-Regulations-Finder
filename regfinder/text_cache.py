@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Sequence
@@ -62,6 +63,7 @@ class TextCacheStore:
                     abs_path TEXT NOT NULL,
                     size INTEGER NOT NULL,
                     mtime REAL NOT NULL,
+                    fingerprint TEXT NOT NULL DEFAULT '',
                     chunk_count INTEGER NOT NULL,
                     status TEXT NOT NULL,
                     updated_at TEXT NOT NULL
@@ -85,11 +87,25 @@ class TextCacheStore:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_files_file_key ON files(file_key)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_chunks_file_key ON chunks(file_key)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_chunks_doc_id ON chunks(doc_id)")
+            file_columns = {
+                str(row["name"])
+                for row in conn.execute("PRAGMA table_info(files)").fetchall()
+            }
+            if "fingerprint" not in file_columns:
+                conn.execute("ALTER TABLE files ADD COLUMN fingerprint TEXT NOT NULL DEFAULT ''")
             self._write_meta(conn, "schema_version", str(self.schema_version))
             if self._read_meta(conn, "revision") is None:
                 self._write_meta(conn, "revision", "0")
             if self._read_meta(conn, "updated_at") is None:
                 self._write_meta(conn, "updated_at", "")
+
+    @staticmethod
+    def compute_file_fingerprint(path: str) -> str:
+        digest = hashlib.sha1()
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
 
     def _read_meta(self, conn: sqlite3.Connection, key: str) -> Optional[str]:
         row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
@@ -122,7 +138,7 @@ class TextCacheStore:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT file_key, rel_path, abs_path, size, mtime, chunk_count, status, updated_at
+                SELECT file_key, rel_path, abs_path, size, mtime, fingerprint, chunk_count, status, updated_at
                 FROM files
                 """
             ).fetchall()
@@ -133,6 +149,7 @@ class TextCacheStore:
                 "path": str(row["abs_path"]),
                 "size": int(row["size"]),
                 "mtime": float(row["mtime"]),
+                "fingerprint": str(row["fingerprint"] or ""),
                 "chunks": int(row["chunk_count"]),
                 "status": str(row["status"]),
                 "updated_at": str(row["updated_at"]),
@@ -183,13 +200,17 @@ class TextCacheStore:
                 now = datetime.now().isoformat(timespec="seconds")
                 for replacement in replacements:
                     file = replacement.file
+                    try:
+                        fingerprint = self.compute_file_fingerprint(file.path)
+                    except OSError:
+                        fingerprint = ""
                     conn.execute("DELETE FROM chunks WHERE file_key = ?", (file.file_key,))
                     conn.execute("DELETE FROM files WHERE file_key = ?", (file.file_key,))
                     conn.execute(
                         """
                         INSERT INTO files(
-                            file_key, rel_path, abs_path, size, mtime, chunk_count, status, updated_at
-                        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+                            file_key, rel_path, abs_path, size, mtime, fingerprint, chunk_count, status, updated_at
+                        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             file.file_key,
@@ -197,6 +218,7 @@ class TextCacheStore:
                             file.path,
                             file.size,
                             file.mtime,
+                            fingerprint,
                             len(replacement.chunks),
                             replacement.status,
                             now,

@@ -26,6 +26,8 @@
     Hugging Face 캐시 구조를 기준으로 판별합니다.
     `pyrightconfig.json`, `.editorconfig`, `.gitattributes`, `.vscode/settings.json`
     같은 개발용 품질 설정 파일과 `tests/test_repo_text_encoding.py` 같은 회귀 테스트는 번들 대상이 아닙니다.
+    `.pytest_localappdata`, `.regfinder_logs` 같은 로컬 테스트/로그 디렉터리도 번들 대상이 아닙니다.
+    최신 UI는 검색 중 인라인 진행 카드와 결과 상세 모달을 사용하지만 별도 데이터 파일 추가는 필요하지 않습니다.
 """
 
 import os

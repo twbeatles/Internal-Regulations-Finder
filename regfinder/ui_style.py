@@ -138,6 +138,11 @@ QFrame#card:hover { border-color: #1a4a70; }
 QFrame#statCard { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0f3460, stop:1 #16213e); border-radius: 12px; border: 1px solid #1a4a70; }
 QFrame#resultCard { background: #16213e; border-radius: 12px; border: 1px solid #0f3460; }
 QFrame#resultCard:hover { border-color: #e94560; }
+QFrame#searchProgressCard {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #172554, stop:1 #16213e);
+    border-radius: 14px;
+    border: 1px solid #2563eb;
+}
 QFrame#emptyStateCard {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #16213e, stop:1 #18284a);
     border-radius: 18px;
@@ -146,6 +151,12 @@ QFrame#emptyStateCard {
 QLabel#emptyStateIcon { color: #f8fafc; background: transparent; }
 QLabel#emptyStateTitle { color: #f8fafc; font-size: 22px; font-weight: 700; background: transparent; }
 QLabel#emptyStateDescription { color: #9fb3c8; font-size: 14px; line-height: 1.5em; background: transparent; }
+QLabel#emptyStateDetails { color: #cbd5e1; font-size: 12px; line-height: 1.4em; background: transparent; }
+QDialog#progressDialog {
+    background: #16213e;
+    border: 1px solid #0f4f8a;
+    border-radius: 14px;
+}
 
 /* 슬라이더 */
 QSlider::groove:horizontal { background: #0f3460; height: 6px; border-radius: 3px; }

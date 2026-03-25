@@ -5,6 +5,7 @@ import csv
 import os
 import sys
 from datetime import datetime
+from typing import Mapping
 
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtGui import QCloseEvent, QFont
@@ -12,6 +13,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
     QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -22,9 +24,10 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QTableWidgetItem,
     QVBoxLayout,
+    QWidget,
 )
 
-from .app_types import AppConfig, DiscoveredFile, FileStatus, ModelDownloadStateMap, TaskResult
+from .app_types import AppConfig, DiscoveredFile, FileStatus, ModelDownloadStateMap, SearchHistoryEntry, TaskResult
 from .file_utils import FileUtils
 from .model_inventory import ModelInventory
 from .qa_system import RegulationQASystem
@@ -34,9 +37,12 @@ from .main_window_ui_mixin import MainWindowUIBuilderMixin
 from .main_window_mixins import MainWindowConfigMixin, MainWindowInsightsMixin
 from .ui_components import (
     EmptyStateWidget,
+    NumericTableWidgetItem,
     PdfPasswordDialog,
     ProgressDialog,
     ResultCard,
+    ResultDetailDialog,
+    SearchProgressCard,
     SearchHistory,
 )
 from .ui_style import ui_font
@@ -48,6 +54,26 @@ from .workers import (
     ModelLoaderThread,
     SearchThread,
 )
+
+
+def _coerce_int(value: object, default: int = 0) -> int:
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except Exception:
+        try:
+            return int(str(value))
+        except Exception:
+            return default
+
+
+def _coerce_float(value: object, default: float = 0.0) -> float:
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except Exception:
+        try:
+            return float(str(value))
+        except Exception:
+            return default
 
 class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowConfigMixin, QMainWindow):
 
@@ -71,16 +97,294 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         self.search_filters = {"extension": "", "filename": "", "path": ""}
         self.pdf_passwords: dict[str, str] = {}
         self.status_timer = None  # 상태 레이블 타이머 관리
+        self.last_search_results: list[dict[str, object]] = []
+        self.last_search_query = ""
+        self._last_rendered_search_context = {
+            "query": "",
+            "filters": {"extension": "", "filename": "", "path": ""},
+            "sort_by": self.sort_by,
+            "k": AppConfig.DEFAULT_SEARCH_RESULTS,
+            "hybrid": self.hybrid,
+            "elapsed_ms": 0,
+            "search_mode": "",
+        }
+        self._active_search_context = dict(self._last_rendered_search_context)
+        self._search_progress_card: SearchProgressCard | None = None
+        self._search_elapsed_timer: QTimer | None = None
+        self._search_start_time = 0.0
         
         self._load_config()
         self._init_ui()
+        self._set_search_controls_enabled(False)
+        self._refresh_action_buttons()
         self._update_internal_state_display()
         self._schedule_diagnostics_refresh()
         QTimer.singleShot(100, self._load_model)
 
     def _set_search_controls_enabled(self, enabled: bool) -> None:
-        self.search_input.setEnabled(enabled)
-        self.search_btn.setEnabled(enabled)
+        widgets = [
+            getattr(self, "search_input", None),
+            getattr(self, "search_btn", None),
+            getattr(self, "filename_filter_input", None),
+            getattr(self, "path_filter_input", None),
+            getattr(self, "ext_filter_combo", None),
+            getattr(self, "sort_combo", None),
+            getattr(self, "history_btn", None),
+            getattr(self, "k_spin", None),
+        ]
+        for widget in widgets:
+            if widget is not None:
+                widget.setEnabled(enabled)
+
+    def _has_searchable_index(self) -> bool:
+        return bool(self._current_search_mode())
+
+    def _current_busy_task(self) -> str:
+        for key in ("docs", "model", "download", "search"):
+            if self.workers.is_running(key):
+                return key
+        return ""
+
+    def _busy_task_label(self, task: str) -> str:
+        return {
+            "docs": "문서 처리",
+            "model": "모델 로드",
+            "download": "모델 다운로드",
+            "search": "검색",
+        }.get(task, "작업")
+
+    def _guard_busy_action(self, action_name: str) -> bool:
+        task = self._current_busy_task()
+        if not task:
+            return True
+        QMessageBox.information(
+            self,
+            "작업 진행 중",
+            f"{self._busy_task_label(task)} 중에는 {action_name}을(를) 실행할 수 없습니다.",
+        )
+        return False
+
+    def _refresh_action_buttons(self) -> None:
+        task = self._current_busy_task()
+        strong_busy = task in {"docs", "model", "download"}
+        any_busy = bool(task)
+        model_ready = self.qa.embedding_model is not None
+        search_ready = self._has_searchable_index()
+
+        if hasattr(self, "tabs"):
+            self.tabs.setEnabled(not strong_busy)
+
+        self._set_search_controls_enabled(search_ready and not any_busy)
+
+        if hasattr(self, "folder_btn"):
+            self.folder_btn.setEnabled(model_ready and not any_busy)
+        if hasattr(self, "recent_btn"):
+            self.recent_btn.setEnabled(any(os.path.isdir(p) for p in self.recents.get()) and not any_busy)
+        if hasattr(self, "refresh_btn"):
+            self.refresh_btn.setEnabled(bool(self.last_folder) and model_ready and not any_busy)
+        if hasattr(self, "reload_model_btn"):
+            self.reload_model_btn.setEnabled(model_ready and not any_busy)
+        if hasattr(self, "download_all_btn"):
+            self.download_all_btn.setEnabled(not any_busy)
+        if hasattr(self, "clear_cache_btn"):
+            self.clear_cache_btn.setEnabled(not any_busy)
+
+    def _remove_result_widget(self, widget: QWidget | None) -> None:
+        if widget is None:
+            return
+        for idx in range(self.result_layout.count()):
+            item = self.result_layout.itemAt(idx)
+            if item is None or item.widget() is not widget:
+                continue
+            taken = self.result_layout.takeAt(idx)
+            if taken is not None:
+                break
+        widget.deleteLater()
+
+    def _clear_search_progress_card(self) -> None:
+        if self._search_elapsed_timer is not None:
+            self._search_elapsed_timer.stop()
+            self._search_elapsed_timer.deleteLater()
+            self._search_elapsed_timer = None
+        if self._search_progress_card is not None:
+            self._remove_result_widget(self._search_progress_card)
+            self._search_progress_card = None
+
+    def _update_search_elapsed(self) -> None:
+        import time
+
+        if self._search_progress_card is None:
+            return
+        self._search_progress_card.set_elapsed_seconds(time.time() - self._search_start_time)
+
+    def _start_search_progress(self, *, query: str, filters: dict[str, str], sort_by: str) -> None:
+        self._clear_search_progress_card()
+        card = SearchProgressCard(query, self._format_filters_summary(filters), self._sort_label(sort_by))
+        card.canceled.connect(self._cancel_search)
+        self.result_layout.insertWidget(0, card)
+        self._search_progress_card = card
+        timer = QTimer(self)
+        timer.timeout.connect(self._update_search_elapsed)
+        timer.start(100)
+        self._search_elapsed_timer = timer
+        self._update_search_elapsed()
+
+    def _update_search_progress_message(self, message: str) -> None:
+        if self._search_progress_card is not None:
+            self._search_progress_card.set_status(message)
+
+    def _cancel_search(self) -> None:
+        worker = self.workers.get("search")
+        if worker is not None:
+            worker.cancel()
+        self._update_search_progress_message("검색 취소를 요청했습니다. 현재 단계가 끝나면 중단됩니다.")
+        self._refresh_action_buttons()
+
+    def _sort_label(self, sort_by: str) -> str:
+        return {
+            "score_desc": "점수순",
+            "filename_asc": "파일명순",
+            "mtime_desc": "최근 수정순",
+        }.get(str(sort_by or "score_desc"), "점수순")
+
+    def _mode_label(self, search_mode: str) -> str:
+        return {
+            "hybrid": "하이브리드",
+            "vector_only": "벡터",
+            "bm25_only": "키워드",
+        }.get(str(search_mode or ""), str(search_mode or ""))
+
+    def _format_filters_summary(self, filters: dict[str, str] | None) -> str:
+        filters = filters or {"extension": "", "filename": "", "path": ""}
+        parts = []
+        if filters.get("extension"):
+            parts.append(f"형식={filters['extension']}")
+        if filters.get("filename"):
+            parts.append(f"파일명={filters['filename']}")
+        if filters.get("path"):
+            parts.append(f"경로={filters['path']}")
+        return " / ".join(parts) if parts else "없음"
+
+    def _build_results_header(
+        self,
+        *,
+        query: str,
+        result_count: int,
+        elapsed_ms: int,
+        search_mode: str,
+        filters: dict[str, str],
+        sort_by: str,
+    ) -> QFrame:
+        header_frame = QFrame()
+        header_frame.setObjectName("card")
+        header_layout = QVBoxLayout(header_frame)
+        header_layout.setContentsMargins(15, 10, 15, 10)
+        header_layout.setSpacing(6)
+
+        top_row = QHBoxLayout()
+        query_label = QLabel(f"🔎 \"{query}\" - {result_count}개 결과")
+        query_label.setFont(ui_font(12, QFont.Weight.Bold))
+        top_row.addWidget(query_label)
+        top_row.addStretch()
+        export_btn = QPushButton("📥 내보내기")
+        export_btn.setFixedHeight(30)
+        export_btn.clicked.connect(self._export_results)
+        export_btn.setEnabled(result_count > 0)
+        top_row.addWidget(export_btn)
+        header_layout.addLayout(top_row)
+
+        meta = [
+            f"⏱ {max(0.0, elapsed_ms / 1000):.2f}초",
+            f"모드: {self._mode_label(search_mode)}" if search_mode else "",
+            f"정렬: {self._sort_label(sort_by)}",
+            f"필터: {self._format_filters_summary(filters)}",
+        ]
+        meta_label = QLabel(" | ".join(item for item in meta if item))
+        meta_label.setStyleSheet("color: #9fb3c8; font-size: 11px;")
+        meta_label.setWordWrap(True)
+        header_layout.addWidget(meta_label)
+        return header_frame
+
+    def _render_search_results(
+        self,
+        *,
+        query: str,
+        results: list[dict[str, object]],
+        elapsed_ms: int,
+        search_mode: str,
+        filters: dict[str, str],
+        sort_by: str,
+    ) -> None:
+        self._clear_results()
+        self.result_layout.addWidget(
+            self._build_results_header(
+                query=query,
+                result_count=len(results),
+                elapsed_ms=elapsed_ms,
+                search_mode=search_mode,
+                filters=filters,
+                sort_by=sort_by,
+            )
+        )
+        self.result_area.setUpdatesEnabled(False)
+        for idx, item in enumerate(results, 1):
+            card = ResultCard(
+                idx,
+                item,
+                self._copy_text,
+                self._add_bookmark,
+                self.font_size,
+                query,
+                self._show_result_details,
+            )
+            self.result_layout.addWidget(card)
+        self.result_area.setUpdatesEnabled(True)
+
+    def _refresh_result_card_fonts(self) -> None:
+        for card in self.result_container.findChildren(ResultCard):
+            card.set_font_size(self.font_size)
+
+    def _reset_search_filters(self) -> None:
+        self.filename_filter_input.clear()
+        self.path_filter_input.clear()
+        self.ext_filter_combo.setCurrentIndex(0)
+        self.sort_combo.setCurrentIndex(max(0, self.sort_combo.findData("score_desc")))
+        self.search_filters = {"extension": "", "filename": "", "path": ""}
+        self.sort_by = "score_desc"
+        self._save_config()
+
+    def _restore_history_entry(self, entry: SearchHistoryEntry | Mapping[str, object]) -> None:
+        query = str(entry.get("q", "") or "")
+        raw_filters = entry.get("filters", {})
+        filters = raw_filters if isinstance(raw_filters, dict) else {}
+        sort_by = str(entry.get("sort_by", "score_desc") or "score_desc")
+        k = _coerce_int(entry.get("k", AppConfig.DEFAULT_SEARCH_RESULTS), AppConfig.DEFAULT_SEARCH_RESULTS)
+        hybrid_raw = entry.get("hybrid", self.hybrid)
+        hybrid = hybrid_raw if isinstance(hybrid_raw, bool) else str(hybrid_raw).strip().lower() not in {"0", "false", "no", ""}
+
+        self.search_input.setText(query)
+        self.filename_filter_input.setText(str(filters.get("filename", "") or ""))
+        self.path_filter_input.setText(str(filters.get("path", "") or ""))
+        ext_idx = self.ext_filter_combo.findData(str(filters.get("extension", "") or ""))
+        self.ext_filter_combo.setCurrentIndex(ext_idx if ext_idx >= 0 else 0)
+        sort_idx = self.sort_combo.findData(sort_by)
+        self.sort_combo.setCurrentIndex(sort_idx if sort_idx >= 0 else 0)
+        self.k_spin.setValue(max(1, min(k, AppConfig.MAX_SEARCH_RESULTS)))
+        self.hybrid = hybrid
+        if hasattr(self, "hybrid_check"):
+            self.hybrid_check.setChecked(hybrid)
+
+    def _show_result_details(self, item: Mapping[str, object]) -> None:
+        file_key = str(item.get("file_key", "") or "")
+        chunks = self.qa.get_chunks_for_file_key(file_key)
+        dialog = ResultDetailDialog(
+            dict(item),
+            chunks,
+            query=self.last_search_query or self.search_input.text().strip(),
+            font_size=self.font_size,
+            parent=self,
+        )
+        dialog.exec()
 
     def _clear_session_pdf_passwords(self) -> None:
         self.pdf_passwords.clear()
@@ -160,17 +464,17 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         worker.cancel()
 
     def _sync_ui_after_index_reset(self, *, empty_state: str = "welcome", search_from_model: bool = True) -> None:
+        self._clear_search_progress_card()
         self._reset_last_search_state()
         self._update_file_table()
         self._show_empty_state(empty_state)
         self._update_internal_state_display()
         self._schedule_diagnostics_refresh()
-
-        model_ready = self.qa.embedding_model is not None if search_from_model else False
-        self._set_search_controls_enabled(model_ready)
-        self.folder_btn.setEnabled(model_ready)
-        self.refresh_btn.setEnabled(bool(self.last_folder) and model_ready)
-        self.recent_btn.setEnabled(any(os.path.isdir(p) for p in self.recents.get()))
+        self._refresh_action_buttons()
+        if not search_from_model:
+            self._set_search_controls_enabled(False)
+            self.folder_btn.setEnabled(False)
+            self.refresh_btn.setEnabled(False)
 
     def _write_results_export_file(self, file_path: str) -> None:
         is_csv = file_path.lower().endswith(".csv")
@@ -179,12 +483,12 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
                 writer = csv.writer(f)
                 writer.writerow(["순위", "랭킹 점수", "파일", "근거 청크 수", "내용"])
                 for i, item in enumerate(self.last_search_results, 1):
-                    score_value = max(0, min(100, int(round(float(item.get("score", 0) or 0) * 100))))
+                    score_value = max(0, min(100, int(round(_coerce_float(item.get("score", 0), 0.0) * 100))))
                     writer.writerow([
                         i,
                         score_value,
                         str(item.get("source", "") or ""),
-                        int(item.get("match_count", 1) or 1),
+                        _coerce_int(item.get("match_count", 1), 1),
                         str(item.get("content", "") or "").replace("\n", " "),
                     ])
             return
@@ -194,11 +498,11 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             f.write(f"결과 수: {len(self.last_search_results)}\n")
             f.write("=" * 50 + "\n\n")
             for i, item in enumerate(self.last_search_results, 1):
-                score_value = max(0, min(100, int(round(float(item.get("score", 0) or 0) * 100))))
+                score_value = max(0, min(100, int(round(_coerce_float(item.get("score", 0), 0.0) * 100))))
                 f.write(f"[결과 {i}]\n")
                 f.write(f"랭킹 점수: {score_value}\n")
-                f.write(f"파일: {item['source']}\n")
-                f.write(f"근거 청크: {int(item.get('match_count', 1) or 1)}개\n")
+                f.write(f"파일: {str(item.get('source', '') or '')}\n")
+                f.write(f"근거 청크: {_coerce_int(item.get('match_count', 1), 1)}개\n")
                 f.write("-" * 30 + "\n")
                 f.write(str(item.get("content", "") or "") + "\n\n")
 
@@ -233,41 +537,44 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         self.cache_size_label.setText(f"💾 캐시 사용량: {FileUtils.format_size(usage_bytes)}")
     
     def _load_model(self):
-        if self.workers.is_running("model"):
+        if self.workers.is_running("model") or self._current_busy_task() in {"docs", "download", "search"}:
             return
-        self.status_label.setText("🔄 모델 로딩 중...")
+        self._show_status("🔄 모델 로딩 중...", "#f59e0b")
         worker = ModelLoaderThread(self.qa, self.model_name)
-        worker.progress.connect(lambda m: self.status_label.setText(f"🔄 {m}"))
+        worker.progress.connect(lambda m: self._show_status(f"🔄 {m}", "#f59e0b"))
         worker.finished.connect(self._on_model_loaded)
         worker.finished.connect(lambda *_: self.workers.clear("model"))
         worker.finished.connect(lambda *_: worker.deleteLater())
         self.workers.set("model", worker)
         worker.start()
+        self._refresh_action_buttons()
     
     def _on_model_loaded(self, result):
+        self._refresh_action_buttons()
         if result.success:
-            self.status_label.setText(f"✅ {result.message}")
-            self.status_label.setStyleSheet("color: #10b981;")
-            self.folder_btn.setEnabled(True)
-            self._set_search_controls_enabled(True)
-            if any(os.path.isdir(p) for p in self.recents.get()):
-                self.recent_btn.setEnabled(True)
+            if self._has_searchable_index():
+                self._show_status(f"✅ {result.message}", "#10b981")
+            else:
+                self._show_status("✅ 모델 로드 완료. 폴더를 선택해 문서를 불러오세요.", "#10b981")
             self._update_internal_state_display()
             self._schedule_diagnostics_refresh()
         else:
-            self.status_label.setText(f"❌ {result.message}")
-            self.status_label.setStyleSheet("color: #ef4444;")
+            self._show_status(f"❌ {result.message}", "#ef4444")
             self._set_search_controls_enabled(False)
             self._update_internal_state_display()
             self._schedule_diagnostics_refresh()
             self._show_task_error("모델 로드 오류", result)
     
     def _open_folder(self):
+        if not self._guard_busy_action("폴더 열기"):
+            return
         folder = QFileDialog.getExistingDirectory(self, "규정 폴더 선택")
         if folder:
             self._load_folder(folder)
     
     def _load_recent(self):
+        if not self._guard_busy_action("최근 폴더 열기"):
+            return
         folders = [p for p in self.recents.get() if os.path.isdir(p)]
         if not folders:
             QMessageBox.information(self, "알림", "최근 폴더가 없습니다.")
@@ -300,6 +607,8 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         menu.exec(self.recent_btn.mapToGlobal(self.recent_btn.rect().bottomLeft()))
     
     def _refresh(self):
+        if not self._guard_busy_action("새로고침"):
+            return
         if self.last_folder:
             try:
                 self.qa.clear_folder_cache(self.last_folder)
@@ -309,6 +618,8 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
     
     def _reload_model(self):
         """모델 즉시 변경"""
+        if not self._guard_busy_action("모델 즉시 변경"):
+            return
         if QMessageBox.question(
             self, "확인",
             "모델을 변경하면 현재 로드된 문서 인덱스가 초기화됩니다.\n계속하시겠습니까?"
@@ -334,7 +645,7 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
 
     def _load_folder(self, folder):
         """폴더 로드 및 문서 처리 시작"""
-        if self.workers.is_running("docs"):
+        if not self._guard_busy_action("폴더 로드"):
             return
         try:
             recursive_enabled = self.recursive_check.isChecked() if hasattr(self, "recursive_check") else self.recursive
@@ -378,26 +689,25 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         self.progress_dialog.canceled.connect(worker.cancel)
         self.workers.set("docs", worker)
         worker.start()
+        self._refresh_action_buttons()
     
     def _on_folder_done(self, result, folder):
         """폴더 처리 완료 핸들러"""
         self.progress_dialog.close()
         self.progress_dialog.deleteLater()  # 위젯 메모리 해제
-        self.folder_btn.setEnabled(True)
+        self._refresh_action_buttons()
         
         if result.success:
             self._purge_failed_pdf_passwords()
             self.last_folder = folder
             self.recents.add(folder)
             self._save_config()
-            self._set_search_controls_enabled(True)
-            self.refresh_btn.setEnabled(True)
-            self.recent_btn.setEnabled(True)
             self._update_file_table()
             self._update_cache_size_display(refresh_async=True)
             self._update_internal_state_display()
             self._schedule_diagnostics_refresh()
             self._show_empty_state("ready")
+            self._refresh_action_buttons()
 
             data = result.data or {}
             chunks = int(data.get("chunks", 0) or 0)
@@ -418,7 +728,8 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
                     f"대규모 인덱스 경고: 현재 청크 수 {int(data.get('memory_warning_chunks', chunks) or chunks)}개로 메모리 사용량이 커질 수 있습니다."
                 )
             self._show_status(status_message, status_color)
-            self.search_input.setFocus()
+            if self._has_searchable_index():
+                self.search_input.setFocus()
 
             if notices:
                 QMessageBox.warning(self, "검색 인덱스 상태", "\n\n".join(notices))
@@ -437,7 +748,8 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             self._show_status(f"❌ {result.message}", "#ef4444")
             self._update_internal_state_display()
             self._schedule_diagnostics_refresh()
-            self._show_task_error("문서 처리 오류", result)
+            if result.message != "사용자에 의해 취소됨":
+                self._show_task_error("문서 처리 오류", result)
     
     def _update_file_table(self):
         infos = self.qa.get_file_infos()
@@ -463,13 +775,11 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             self.file_table.setItem(i, 1, name_item)
             
             # 크기
-            size_item = QTableWidgetItem(FileUtils.format_size(info.size))
-            size_item.setData(Qt.ItemDataRole.UserRole + 1, info.size)  # 정렬용 숫자 저장
+            size_item = NumericTableWidgetItem(FileUtils.format_size(info.size), info.size)
             self.file_table.setItem(i, 2, size_item)
             
             # 청크
-            chunk_item = QTableWidgetItem(str(info.chunks))
-            chunk_item.setData(Qt.ItemDataRole.UserRole + 1, info.chunks)  # 정렬용 숫자 저장
+            chunk_item = NumericTableWidgetItem(str(info.chunks), info.chunks)
             self.file_table.setItem(i, 3, chunk_item)
             
             total_size += info.size
@@ -497,47 +807,57 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         query = self.search_input.text().strip()
         if not query:
             return
-        if self.qa.embedding_model is None:
-            QMessageBox.warning(self, "경고", "모델을 먼저 로드하세요")
-            return
-        if not self._current_search_mode():
-            QMessageBox.warning(self, "경고", "문서를 먼저 로드하세요")
+        if not self._has_searchable_index():
+            if self.qa.embedding_model is None:
+                QMessageBox.warning(self, "경고", "모델을 먼저 로드하세요")
+            else:
+                QMessageBox.warning(self, "경고", "문서를 먼저 로드하세요")
             return
         
         # 이전 검색 스레드가 실행 중이면 무시
-        if self.workers.is_running("search"):
+        if self._current_busy_task():
             return
 
         filters = self._gather_search_filters()
         sort_by = self.sort_combo.currentData() if hasattr(self, "sort_combo") else self.sort_by
         self.sort_by = sort_by
         self.search_filters = filters
+        self._active_search_context = {
+            "query": query,
+            "filters": dict(filters),
+            "sort_by": sort_by,
+            "k": self.k_spin.value(),
+            "hybrid": self.hybrid,
+            "elapsed_ms": 0,
+            "search_mode": "",
+        }
         self._save_config()
         
         self._set_search_controls_enabled(False)
-        self._clear_results()
-        loading = QLabel("🔍 검색 중...")
-        loading.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.result_layout.addWidget(loading)
         
         # 검색 시간 측정 시작
         import time
         self._search_start_time = time.time()
+        self._start_search_progress(query=query, filters=filters, sort_by=sort_by)
         
         worker = SearchThread(self.qa, query, self.k_spin.value(), self.hybrid, filters=filters, sort_by=sort_by)
+        progress_signal = getattr(worker, "progress", None)
+        if progress_signal is not None:
+            progress_signal.connect(self._update_search_progress_message)
         worker.finished.connect(lambda r: self._on_search_done(r, query))
         worker.finished.connect(lambda *_: self.workers.clear("search"))
         worker.finished.connect(lambda *_: worker.deleteLater())
         self.workers.set("search", worker)
         worker.start()
+        self._refresh_action_buttons()
     
     def _on_search_done(self, result, query):
         import time
         search_time = time.time() - getattr(self, '_search_start_time', time.time())
         elapsed_ms = int(search_time * 1000)
         
-        self._set_search_controls_enabled(True)
-        self._clear_results()
+        self._clear_search_progress_card()
+        self._refresh_action_buttons()
         self.search_logs.add(
             query=query,
             elapsed_ms=elapsed_ms,
@@ -546,70 +866,76 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             error_code=getattr(result, "error_code", ""),
         )
         self._schedule_diagnostics_refresh()
+        active_context = dict(self._active_search_context)
+        active_context["elapsed_ms"] = elapsed_ms
+        active_context["search_mode"] = getattr(self.qa.last_search_stats, "search_mode", "")
         
         if not result.success:
-            # UI에는 요약을 남기고, 상세(스택트레이스)는 다이얼로그로 제공
+            if getattr(result, "error_code", "") == "SEARCH_CANCELED":
+                self._show_status("⚠️ 검색이 취소되었습니다.", "#f59e0b", 2500)
+                self.search_input.setFocus()
+                return
+            self._show_status(f"❌ {result.message}", "#ef4444", 3000)
             self._show_task_error("검색 오류", result)
-            err = QLabel(f"❌ {result.message}")
-            err.setStyleSheet("color: #ef4444;")
-            err.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.result_layout.addWidget(err)
             self.search_input.setFocus()
             return
-        
+
+        self.history.add(
+            query,
+            filters=active_context.get("filters", {}),
+            sort_by=str(active_context.get("sort_by", "score_desc") or "score_desc"),
+            k=int(active_context.get("k", AppConfig.DEFAULT_SEARCH_RESULTS) or AppConfig.DEFAULT_SEARCH_RESULTS),
+            hybrid=bool(active_context.get("hybrid", True)),
+        )
+        self._last_rendered_search_context = dict(active_context)
+        self.last_search_query = query
+
+        search_mode = str(active_context.get("search_mode", "") or "")
+        filters = dict(active_context.get("filters", {}) or {})
+        sort_by = str(active_context.get("sort_by", "score_desc") or "score_desc")
+
         if not result.data:
-            self._show_empty_state("no_results")
+            self.last_search_results = []
+            self._clear_results()
+            self.result_layout.addWidget(
+                self._build_results_header(
+                    query=query,
+                    result_count=0,
+                    elapsed_ms=elapsed_ms,
+                    search_mode=search_mode,
+                    filters=filters,
+                    sort_by=sort_by,
+                )
+            )
+            has_filters = any(bool(filters.get(key)) for key in ("extension", "filename", "path"))
+            details = []
+            if has_filters:
+                details.append(f"현재 필터: {self._format_filters_summary(filters)}")
+            self.result_layout.addWidget(
+                EmptyStateWidget(
+                    "🔍",
+                    "검색 결과 없음",
+                    "다른 검색어로 시도해보세요.",
+                    details=details,
+                    action_text="필터 초기화" if has_filters else "",
+                    action_callback=self._reset_search_filters if has_filters else None,
+                )
+            )
             if not self.keep_search_text:
                 self.search_input.clear()
             self.search_input.setFocus()
             return
-        
-        self.history.add(query)
-        self.last_search_results = result.data  # 내보내기용 저장
-        self.last_search_query = query
-        search_mode = getattr(self.qa.last_search_stats, "search_mode", "")
-        
-        # 결과 헤더 (검색어 + 통계 + 내보내기 버튼)
-        header_frame = QFrame()
-        header_frame.setObjectName("card")
-        header_layout = QHBoxLayout(header_frame)
-        header_layout.setContentsMargins(15, 10, 15, 10)
-        
-        query_label = QLabel(f"🔎 \"{query}\" - {len(result.data)}개 결과")
-        query_label.setFont(ui_font(12, QFont.Weight.Bold))
-        header_layout.addWidget(query_label)
-        
-        # 검색 시간 표시
-        time_label = QLabel(f"⏱ {search_time:.2f}초")
-        time_label.setStyleSheet("color: #888; font-size: 11px;")
-        header_layout.addWidget(time_label)
 
-        if search_mode:
-            mode_map = {
-                "hybrid": "하이브리드",
-                "vector_only": "벡터",
-                "bm25_only": "키워드",
-            }
-            mode_label = QLabel(f"모드: {mode_map.get(search_mode, search_mode)}")
-            mode_label.setStyleSheet("color: #9fb3c8; font-size: 11px;")
-            header_layout.addWidget(mode_label)
-        
-        header_layout.addStretch()
-        
-        # 내보내기 버튼
-        export_btn = QPushButton("📥 내보내기")
-        export_btn.setFixedHeight(30)
-        export_btn.clicked.connect(self._export_results)
-        header_layout.addWidget(export_btn)
-        
-        self.result_layout.addWidget(header_frame)
-        
-        # 결과 카드 추가 시 UI 업데이트 일시 중지 (성능 최적화)
-        self.result_area.setUpdatesEnabled(False)
-        for i, item in enumerate(result.data, 1):
-            card = ResultCard(i, item, self._copy_text, self._add_bookmark, self.font_size, query)
-            self.result_layout.addWidget(card)
-        self.result_area.setUpdatesEnabled(True)
+        self.last_search_results = list(result.data)
+        self._render_search_results(
+            query=query,
+            results=self.last_search_results,
+            elapsed_ms=elapsed_ms,
+            search_mode=search_mode,
+            filters=filters,
+            sort_by=sort_by,
+        )
+        self._show_status(f"✅ 검색 완료 ({len(self.last_search_results)}개 결과)", "#10b981", 2500)
 
         if not self.keep_search_text:
             self.search_input.clear()
@@ -673,7 +999,14 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             self.status_timer.timeout.connect(lambda: self.status_label.setText(""))
             self.status_timer.start(duration)
     
-    def _show_empty_state(self, state_type: str = "welcome"):
+    def _show_empty_state(
+        self,
+        state_type: str = "welcome",
+        *,
+        details: list[str] | None = None,
+        action_text: str = "",
+        action_callback=None,
+    ):
         """빈 상태 위젯 표시"""
         self._clear_results()
         
@@ -681,19 +1014,28 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             widget = EmptyStateWidget(
                 "👋",
                 "사내 규정 검색기",
-                "폴더를 선택하고 문서를 로드한 후 검색을 시작하세요.\nCtrl+O로 폴더 열기"
+                "폴더를 선택하고 문서를 로드한 후 검색을 시작하세요.\nCtrl+O로 폴더 열기",
+                details=details,
+                action_text=action_text,
+                action_callback=action_callback,
             )
         elif state_type == "no_results":
             widget = EmptyStateWidget(
                 "🔍",
                 "검색 결과 없음",
-                "다른 검색어로 시도해보세요."
+                "다른 검색어로 시도해보세요.",
+                details=details,
+                action_text=action_text,
+                action_callback=action_callback,
             )
         elif state_type == "ready":
             widget = EmptyStateWidget(
                 "✅",
                 "검색 준비 완료",
-                "검색어를 입력하고 Enter를 누르거나 검색 버튼을 클릭하세요."
+                "검색어를 입력하고 Enter를 누르거나 검색 버튼을 클릭하세요.",
+                details=details,
+                action_text=action_text,
+                action_callback=action_callback,
             )
         else:
             return
@@ -727,10 +1069,11 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             }
         """)
         
-        for query in history_items:
+        for entry in history_items:
+            query = str(entry.get("q", "") or "")
             action = menu.addAction(f"🔍 {query}")
             if action is not None:
-                action.triggered.connect(lambda checked, q=query: self._search_from_history(q))
+                action.triggered.connect(lambda checked=False, item=entry: self._search_from_history(item))
         
         menu.addSeparator()
         clear_action = menu.addAction("🗑️ 히스토리 삭제")
@@ -740,9 +1083,10 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         # 버튼 아래에 메뉴 표시
         menu.exec(self.history_btn.mapToGlobal(self.history_btn.rect().bottomLeft()))
     
-    def _search_from_history(self, query: str):
+    def _search_from_history(self, entry: SearchHistoryEntry | Mapping[str, object]):
         """히스토리에서 선택한 검색어로 검색"""
-        self.search_input.setText(query)
+        self._restore_history_entry(entry)
+        self._show_status("✅ 조건 복원 후 검색을 시작합니다.", "#10b981", 2000)
         self._search()
     
     def _export_diagnostics(self):
@@ -768,12 +1112,14 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             self._show_task_error("진단 내보내기 실패", result)
 
     def _clear_cache(self):
+        if not self._guard_busy_action("캐시 삭제"):
+            return
         if QMessageBox.question(self, "확인", "캐시를 삭제하시겠습니까?") == QMessageBox.StandardButton.Yes:
             self.qa.clear_cache()
             self._clear_session_pdf_passwords()
             self._sync_ui_after_index_reset(empty_state="welcome")
             self._update_cache_size_display(refresh_async=False)
-            self._show_status("✅ 캐시 삭제됨. 폴더를 다시 로드하세요.", "#10b981", 3000)
+            self._show_status("✅ 캐시 삭제 완료. 모델은 유지되며 폴더를 다시 로드해야 검색할 수 있습니다.", "#10b981", 3500)
     
     def _clear_history(self):
         if QMessageBox.question(self, "확인", "히스토리를 삭제하시겠습니까?") == QMessageBox.StandardButton.Yes:
@@ -895,7 +1241,8 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
     
     def _download_all_models(self):
         """선택된 모델 다운로드 시작"""
-        from PyQt6.QtWidgets import QDialog, QDialogButtonBox
+        if not self._guard_busy_action("모델 다운로드"):
+            return
         if self.workers.is_running("download"):
             return
         dialog = QDialog(self)
@@ -980,6 +1327,7 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             self.progress_dialog.canceled.connect(lambda *_: self._handle_download_cancel_requested(worker))
             self.workers.set("download", worker)
             worker.start()
+            self._refresh_action_buttons()
         except Exception as e:
             logger.exception("모델 다운로드 대화상자 초기화 실패")
             QMessageBox.critical(self, "오류", f"모델 다운로드 시작 실패: {e}")
@@ -988,8 +1336,11 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
     
     def _on_download_done(self, result):
         """모델 다운로드 완료 핸들러"""
-        self.progress_dialog.close()
-        self.progress_dialog.deleteLater()
+        progress_dialog = getattr(self, "progress_dialog", None)
+        if progress_dialog is not None:
+            progress_dialog.close()
+            progress_dialog.deleteLater()
+        self._refresh_action_buttons()
 
         states = self._refresh_model_inventory(force=True)
         self._update_model_status(states=states)
@@ -1003,6 +1354,8 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             if preferred_selected:
                 self._show_status("✅ 다운로드된 모델을 설정창 기본 선택으로 반영했습니다", "#10b981", 4000)
             QMessageBox.information(self, "완료", f"✅ {result.message}")
+        elif getattr(result, "error_code", "") == "DOWNLOAD_CANCELED":
+            self._show_status("⚠️ 모델 다운로드가 취소되었습니다.", "#f59e0b", 3000)
         else:
             msg = f"❌ {result.message}"
             downloaded_names = list((result.data or {}).get("downloaded", []) or [])
@@ -1023,6 +1376,7 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
     
     def closeEvent(self, a0: QCloseEvent | None):
         self.workers.cancel_all()
+        self._clear_search_progress_card()
         progress_dialog = getattr(self, "progress_dialog", None)
         if progress_dialog is not None:
             progress_dialog.close()

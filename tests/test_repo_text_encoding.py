@@ -13,6 +13,7 @@ EXCLUDED_PARTS = {"__pycache__", ".pytest_cache", "artifacts", "build", "dist", 
 
 
 def _tracked_text_files() -> list[Path]:
+    output = ""
     try:
         output = subprocess.check_output(
             ["git", "-c", "core.quotepath=false", "ls-files"],

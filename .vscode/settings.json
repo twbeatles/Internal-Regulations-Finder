@@ -2,6 +2,14 @@
   "files.encoding": "utf8",
   "python.analysis.diagnosticMode": "workspace",
   "python.analysis.typeCheckingMode": "standard",
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}"
+  ],
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportMissingImports": "none",
+    "reportMissingModuleSource": "none",
+    "reportMissingTypeStubs": "none"
+  },
   "terminal.integrated.env.windows": {
     "PYTHONUTF8": "1",
     "PYTHONIOENCODING": "utf-8"

@@ -46,6 +46,7 @@ desktop.ini
 # Logs
 logs/
 *.log
+.regfinder_logs/
 
 # App/runtime cache artifacts
 artifacts/
@@ -53,6 +54,7 @@ artifacts/
 cache/
 tmp/
 temp/
+.pytest_localappdata/
 
 # Model/cache folders
 models/

@@ -10,7 +10,7 @@ import tempfile
 import threading
 import traceback
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from .app_types import (
     AppConfig,
@@ -357,7 +357,20 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
         for key in (cur_keys & cache_keys):
             discovered = current[key]
             cached = cached_files.get(key) or {}
-            if int(cached.get("size", -1)) == discovered.size and float(cached.get("mtime", -1)) == discovered.mtime:
+            same_size = int(cached.get("size", -1)) == discovered.size
+            same_mtime = float(cached.get("mtime", -1)) == discovered.mtime
+            if same_size and same_mtime:
+                cached_fingerprint = str(cached.get("fingerprint", "") or "")
+                if cached_fingerprint:
+                    try:
+                        current_fingerprint = text_cache.compute_file_fingerprint(discovered.path)
+                    except OSError:
+                        current_fingerprint = ""
+                    if current_fingerprint and current_fingerprint == cached_fingerprint:
+                        unchanged_keys.add(key)
+                        continue
+                    modified_keys.add(key)
+                    continue
                 unchanged_keys.add(key)
             else:
                 modified_keys.add(key)
@@ -740,6 +753,8 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
         op_id: Optional[str] = None,
         filters: Optional[Dict[str, str]] = None,
         sort_by: str = "score_desc",
+        progress_cb: Callable[[str], None] | None = None,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> TaskResult:
         query = query.strip()
         if len(query) < 2:
@@ -753,21 +768,42 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
         log = get_op_logger(op_id)
         started = datetime.now()
         filters_norm = self._normalize_filters(filters or {})
+
+        def _emit_progress(message: str) -> None:
+            if progress_cb is not None:
+                progress_cb(str(message))
+
+        def _check_canceled() -> None:
+            if cancel_check and cancel_check():
+                raise RuntimeError("SEARCH_CANCELED")
+
         try:
+            _emit_progress("검색 조건을 확인하는 중...")
+            _check_canceled()
             k = max(1, min(k, AppConfig.MAX_SEARCH_RESULTS))
             vec_results: List[Tuple[Any, float]] = []
             vector_fetch_k = 0
             filtered_out = 0
             if search_mode in {"hybrid", "vector_only"}:
+                _emit_progress("벡터 후보를 검색하는 중...")
+                _check_canceled()
                 vec_results, vector_fetch_k, filtered_out = self._search_vector(query, k, filters_norm)
+                _check_canceled()
+                _emit_progress("벡터 후보 검색을 마쳤습니다.")
             combined, bm25_candidates = self._calculate_hybrid_results(
                 query,
                 vec_results,
                 max(k * 6, k),
                 search_mode,
                 filters_norm,
+                progress_cb=_emit_progress,
+                cancel_check=cancel_check,
             )
+            _check_canceled()
+            _emit_progress("필터 조건을 적용하는 중...")
             filtered = self._apply_search_filters(combined, filters_norm)
+            _check_canceled()
+            _emit_progress("최종 결과를 정렬하는 중...")
             final_results = self._sort_results(filtered, sort_by)[:k]
             elapsed_ms = int((datetime.now() - started).total_seconds() * 1000)
             self.last_search_stats = SearchStats(
@@ -812,6 +848,37 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
                 }
             return TaskResult(True, "검색 완료", final_results, op_id=op_id)
         except RuntimeError as e:
+            if str(e) == "SEARCH_CANCELED":
+                elapsed_ms = int((datetime.now() - started).total_seconds() * 1000)
+                self.last_search_stats = SearchStats(
+                    elapsed_ms=elapsed_ms,
+                    vector_fetch_k=0,
+                    bm25_candidates=0,
+                    filtered_out=0,
+                    result_count=0,
+                    query_len=len(query),
+                    search_mode=search_mode,
+                    vector_ready=bool(self.vector_store),
+                    filters=dict(filters_norm),
+                )
+                with self._diagnostics_lock:
+                    self.last_op = {
+                        "op_id": op_id,
+                        "kind": "search",
+                        "query_len": len(query),
+                        "k": k,
+                        "hybrid": bool(hybrid),
+                        "results": 0,
+                        "sort_by": sort_by,
+                        "filters": dict(filters_norm),
+                        "search_mode": search_mode,
+                        "vector_ready": bool(self.vector_store),
+                        "success": False,
+                        "status": "canceled",
+                        "elapsed_ms": elapsed_ms,
+                        "ts": datetime.now().isoformat(timespec="seconds"),
+                    }
+                return TaskResult(False, "검색이 취소되었습니다", op_id=op_id, error_code="SEARCH_CANCELED")
             log.error(f"FAISS 검색 오류: {e}")
             return TaskResult(
                 False,
@@ -903,11 +970,19 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
         chunk_results: Sequence[Dict[str, Any]],
         *,
         search_mode: str,
+        progress_cb: Callable[[str], None] | None = None,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> List[Dict[str, Any]]:
         grouped: Dict[str, Dict[str, Any]] = {}
-        for item in chunk_results:
+        total = len(chunk_results)
+        for idx, item in enumerate(chunk_results):
+            if cancel_check and cancel_check():
+                raise RuntimeError("SEARCH_CANCELED")
+            if progress_cb and total > 0 and idx % 25 == 0:
+                progress_cb(f"파일 결과 집계 중... {min(idx + 1, total)}/{total}")
             file_key = str(item.get("file_key", "") or item.get("id", "") or item.get("path", "") or item.get("source", "?"))
             chunk_id = str(item.get("id", "") or f"{file_key}#{item.get('chunk_idx', 0)}")
+            chunk_idx = int(item.get("chunk_idx", 0) or 0)
             chunk_score = self._combine_scores(
                 vec_score=float(item.get("vec_score", 0.0) or 0.0),
                 bm25_score=float(item.get("bm25_score", 0.0) or 0.0),
@@ -930,6 +1005,8 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
                     "match_count": 1,
                     "_best_chunk_score": chunk_score,
                     "_chunk_ids": {chunk_id},
+                    "_matched_chunk_indices": {chunk_idx},
+                    "_matched_doc_ids": {chunk_id},
                 }
                 continue
 
@@ -944,19 +1021,23 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
             if chunk_id not in chunk_ids:
                 chunk_ids.add(chunk_id)
                 existing["match_count"] = int(existing.get("match_count", 0) or 0) + 1
+                existing["_matched_chunk_indices"].add(chunk_idx)
+                existing["_matched_doc_ids"].add(chunk_id)
             best_chunk_score = float(existing.get("_best_chunk_score", 0.0) or 0.0)
             if chunk_score > best_chunk_score or (
                 chunk_score == best_chunk_score
-                and int(item.get("chunk_idx", 0) or 0) < int(existing.get("snippet_chunk_idx", 0) or 0)
+                and chunk_idx < int(existing.get("snippet_chunk_idx", 0) or 0)
             ):
                 existing["id"] = chunk_id
                 existing["chunk_idx"] = item.get("chunk_idx")
-                existing["snippet_chunk_idx"] = int(item.get("chunk_idx", 0) or 0)
+                existing["snippet_chunk_idx"] = chunk_idx
                 existing["content"] = item.get("content", "")
                 existing["_best_chunk_score"] = chunk_score
 
         aggregated: List[Dict[str, Any]] = []
         for item in grouped.values():
+            item["matched_chunk_indices"] = sorted(int(value) for value in item.pop("_matched_chunk_indices", set()))
+            item["matched_doc_ids"] = sorted(str(value) for value in item.pop("_matched_doc_ids", set()))
             item.pop("_best_chunk_score", None)
             item.pop("_chunk_ids", None)
             aggregated.append(item)
@@ -969,11 +1050,17 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
         k: int,
         search_mode: str,
         filters: Dict[str, str],
+        progress_cb: Callable[[str], None] | None = None,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         combined: Dict[str, Dict[str, Any]] = {}
 
         if search_mode in {"hybrid", "vector_only"} and vec_results:
+            if progress_cb:
+                progress_cb("벡터 후보를 파일 단위로 정리하는 중...")
             for doc, dist in vec_results:
+                if cancel_check and cancel_check():
+                    raise RuntimeError("SEARCH_CANCELED")
                 metadata = doc.metadata or {}
                 doc_id = str(metadata.get("id", "") or "")
                 key = doc_id or doc.page_content[:100]
@@ -992,14 +1079,24 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
 
         bm25_candidates = 0
         if search_mode in {"hybrid", "bm25_only"} and self.bm25:
+            if cancel_check and cancel_check():
+                raise RuntimeError("SEARCH_CANCELED")
             allow_doc = None
             if self._has_filters(filters):
                 allow_doc = lambda idx: self._matches_doc_filters(idx, filters)
+            if progress_cb:
+                progress_cb("키워드 후보 수를 계산하는 중...")
             bm25_candidates = self.bm25.candidate_count(query, allow_doc=allow_doc)
+            if cancel_check and cancel_check():
+                raise RuntimeError("SEARCH_CANCELED")
+            if progress_cb:
+                progress_cb("키워드 후보를 정렬하는 중...")
             bm_res = self.bm25.search(query, top_k=min(len(self.documents), max(k * 8, 50)), allow_doc=allow_doc)
             if bm_res:
                 max_bm = max(score for _, score in bm_res)
                 for idx, score in bm_res:
+                    if cancel_check and cancel_check():
+                        raise RuntimeError("SEARCH_CANCELED")
                     if not (0 <= idx < len(self.documents)):
                         continue
                     doc_id = self.doc_ids[idx]
@@ -1028,7 +1125,12 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
                 search_mode=search_mode,
             )
 
-        return self._aggregate_file_results(list(combined.values()), search_mode=search_mode), bm25_candidates
+        return self._aggregate_file_results(
+            list(combined.values()),
+            search_mode=search_mode,
+            progress_cb=progress_cb,
+            cancel_check=cancel_check,
+        ), bm25_candidates
 
     def _apply_search_filters(self, results: List[Dict[str, Any]], filters: Dict[str, str]) -> List[Dict[str, Any]]:
         filters_norm = self._normalize_filters(filters)
@@ -1059,6 +1161,27 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
 
     def get_file_infos(self):
         return list(self.file_infos.values())
+
+    def get_chunks_for_file_key(self, file_key: str) -> List[Dict[str, Any]]:
+        target = str(file_key or "")
+        if not target:
+            return []
+        chunks: List[Dict[str, Any]] = []
+        for idx, meta in enumerate(self.doc_meta):
+            if str(meta.get("file_key", "") or "") != target:
+                continue
+            chunks.append(
+                {
+                    "id": str(meta.get("id", "") or ""),
+                    "file_key": target,
+                    "chunk_idx": int(meta.get("chunk_idx", 0) or 0),
+                    "content": self.documents[idx] if 0 <= idx < len(self.documents) else "",
+                    "source": str(meta.get("source", "") or ""),
+                    "path": str(meta.get("path", "") or ""),
+                    "mtime": meta.get("mtime"),
+                }
+            )
+        return sorted(chunks, key=lambda item: int(item.get("chunk_idx", 0) or 0))
 
     def clear_cache(self, reset_memory: bool = True):
         if os.path.exists(self.cache_path):

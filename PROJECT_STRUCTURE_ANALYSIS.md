@@ -113,6 +113,10 @@
 11. frozen(onefile) 다운로드 취소 semantics 안내: **완료**
 12. 검색 정규화 기반 하이라이트 정합성 보강: **완료**
 13. 캐시 삭제 후 UI/세션 상태 동기화: **완료**
+14. 검색 busy state / 인라인 진행 카드 / 결과 상세 모달: **완료**
+15. 검색 히스토리 확장 저장(`filters`, `sort_by`, `k`, `hybrid`): **완료**
+16. 파일/북마크 숫자 정렬 + 결과 카드 폰트 즉시 반영: **완료**
+17. Pyright/Pylance 설정 정합화 + UTF-8/로컬 temp 경로 안정화: **완료**
 
 ---
 
@@ -150,7 +154,7 @@
 4. 빈 상태 UI 스타일 회귀 수정
    - 전역 `QWidget` 배경 적용을 화면 컨테이너로 한정
 5. 모델 선택 UX 개선
-   - 모델 로드 완료 직후 검색 입력 활성화
+   - 모델만 로드된 상태에서는 검색 패널 비활성화, searchable index 준비 후 활성화
    - 다운로드 완료 모델 우선 정렬/선택 및 Hugging Face 캐시 구조 기반 상태 판별
 6. Pylance/UTF-8 회귀 방지
    - `ModelDownloadState` 타입 계약 도입으로 모델 다운로드 상태 접근 강타입화
@@ -158,6 +162,7 @@
 7. 성능 리팩토링 반영
    - 캐시 스키마 `v3`로 상향
    - 텍스트 캐시(`text_cache.sqlite`)와 모델별 벡터 캐시 분리
+   - 텍스트 캐시 file fingerprint 저장으로 same-size modified file 감지 보강
    - `BM25Light` → posting 기반 `BM25Index`
    - `FileUtils.safe_read()` fast path + lazy `charset_normalizer` fallback
    - 모델 인벤토리 캐시(`model_inventory.json`)와 background 캐시 사용량 갱신
@@ -175,6 +180,15 @@
    - GUI 검색 진입도 `bm25_only` 상태에서 허용
 5. 운영 상태 가시성 강화
    - `search_mode`, `vector_ready`, `memory_warning`가 내부 상태와 진단 탭에 반영
+6. UI/UX 정합성 보강
+   - 검색 중 기존 결과 유지 + 인라인 진행 카드/취소
+   - 무결과 필터 요약 + `필터 초기화`
+   - 검색 결과 상세 모달(근거 청크 이동/전체 문서 보기)
+   - 파일/북마크 숫자 정렬, 결과 카드 폰트 즉시 반영
+7. 타입/도구 안정화
+   - `pyrightconfig.json`과 `.vscode/settings.json`에서 optional dependency missing-import 노이즈 억제
+   - `runtime.py` 로거 writable fallback 추가
+   - `.gitignore`에 `.pytest_localappdata/`, `.regfinder_logs/` 반영
 
 ### 5-3) 최근 안정화/정합성 반영
 

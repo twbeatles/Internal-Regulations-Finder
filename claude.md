@@ -39,6 +39,7 @@ This file tracks architecture and maintenance rules after modularization and fol
 - `MAX_DOCS_IN_MEMORY=5000` is a soft warning threshold, not a hard stop
 - data root: portable app directory first, then `LOCALAPPDATA/APPDATA`
 - text/vector cache root: tempdir `reg_qa_v93/text`, `reg_qa_v93/vector`
+- text cache file rows store a file fingerprint in addition to size/mtime for stale-cache safety
 
 ---
 
@@ -49,13 +50,19 @@ This file tracks architecture and maintenance rules after modularization and fol
 - Korean no-space queries such as `휴가규정` are expanded with char n-grams, and simple particles like `을/를/은/는` are stripped for semantic matching.
 - Search results are grouped at file level, not chunk level.
   - The representative snippet comes from the highest-ranked chunk.
-  - Each result carries `match_count` and `snippet_chunk_idx`.
+  - Each result carries `match_count`, `snippet_chunk_idx`, `matched_chunk_indices`, `matched_doc_ids`.
 - Result score wording is `랭킹 점수`, not a literal similarity percentage.
 - Filtered vector search increases `fetch_k` progressively until enough distinct file hits are found, reducing false negatives behind the top-100 window.
 - BM25 is built from content plus repeated filename text for lightweight title boost.
 - Document processing builds BM25 first, then attempts vector sync.
   - If vector cache build/load fails, the app remains searchable in `bm25_only` mode.
-  - GUI search entry also stays available in `bm25_only` mode.
+  - GUI search entry stays available only when a searchable index exists; model-only state keeps the whole search panel disabled.
+- Search shows an inline progress card with cancel, keeps previous results visible until replacement, and surfaces active filters/sort/mode in the result header.
+- No-result state can surface filter summary plus `필터 초기화`.
+- Search history stores `q + filters + sort_by + k + hybrid` and restoring a history item replays the search immediately.
+- Result detail uses a modal dialog with file open, path copy, evidence chunk navigation, and full indexed-document view.
+- Result card font size updates live when the settings slider changes.
+- File/bookmark numeric columns use numeric sort items rather than plain string table items.
 - Modified-file re-extraction failures purge the previous cached text/chunks for that file, so stale content does not remain searchable.
 - Encrypted PDFs are pre-scanned before folder indexing and file-level passwords are kept in session memory only.
 - UI highlighting uses `highlight_spans()` from `regfinder.search_text`, so no-space Korean queries and particle stripping apply to visible highlight ranges too.
@@ -67,10 +74,10 @@ This file tracks architecture and maintenance rules after modularization and fol
 - Results/bookmarks CSV exports use Python `csv` writer escaping, and cache clear resets memory state plus session PDF passwords while keeping the loaded model when available.
 - Text cache is reused across model switches; vector cache is model-specific.
 - `FileUtils.safe_read()` uses `UTF-8 -> CP949 -> EUC-KR` fast path and lazily imports `charset_normalizer` only on fallback.
-- Search input becomes enabled immediately after successful model load, even before folder indexing.
 - Settings model selector surfaces download status and prioritizes downloaded models using Hugging Face cache directory detection.
 - Model download state access is strongly typed via `ModelDownloadState`, preventing Pylance drift in selector/status UI.
 - Cache usage display is refreshed via worker and model download state is cached in `model_inventory.json`.
+- Logger setup falls back to a workspace-local log directory if the preferred log directory is not writable, which keeps tests/tooling from failing on import.
 
 ---
 
@@ -95,10 +102,11 @@ This file tracks architecture and maintenance rules after modularization and fol
 
 ## 🧰 Repository Assets
 
-- `pyrightconfig.json`: repo-wide Pylance/Pyright baseline
+- `pyrightconfig.json`: repo-wide Pylance/Pyright baseline, with optional dependency missing-import noise suppressed
 - `.editorconfig`: UTF-8, LF, whitespace policy
 - `.gitattributes`: tracked text file line-ending normalization
 - `.vscode/settings.json`: workspace UTF-8/Pylance/Python terminal defaults
+- `.gitignore`: local test/temp/log folders such as `.pytest_localappdata/` and `.regfinder_logs/` are excluded
 - `tests/test_repo_text_encoding.py`: tracked text-file UTF-8/replacement-char regression test
 
 ---

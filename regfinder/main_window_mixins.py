@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
 from .app_types import AppConfig, TaskResult
 from .file_utils import FileUtils
 from .runtime import get_data_directory, get_models_directory
+from .ui_components import NumericTableWidgetItem
 from .ui_style import ui_font
 
 if TYPE_CHECKING:
@@ -42,6 +43,8 @@ class MainWindowConfigMixin:
         self = _as_window(self)
         self.font_size = value
         self.font_size_label.setText(f"{value}pt")
+        if hasattr(self, "_refresh_result_card_fonts"):
+            self._refresh_result_card_fonts()
         self._save_config()
 
     def _load_config(self) -> None:
@@ -203,7 +206,10 @@ class MainWindowInsightsMixin:
             source_item.setData(Qt.ItemDataRole.UserRole, str(item.get("path", "")))
             self.bookmark_table.setItem(i, 2, source_item)
 
-            score_item = QTableWidgetItem(f"{float(item.get('score', 0) or 0):.2f}")
+            score_item = NumericTableWidgetItem(
+                f"{float(item.get('score', 0) or 0):.2f}",
+                float(item.get("score", 0) or 0),
+            )
             self.bookmark_table.setItem(i, 3, score_item)
 
         self.bookmark_table.setSortingEnabled(True)

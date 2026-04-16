@@ -310,6 +310,20 @@ class MainWindowUIBuilderMixin:
         self.recursive_check.setToolTip("선택한 폴더의 모든 하위 폴더에서도 문서를 검색합니다")
         self.recursive_check.stateChanged.connect(lambda: setattr(self, "recursive", self.recursive_check.isChecked()))
         search_layout.addWidget(self.recursive_check)
+
+        self.ocr_enabled_check = QCheckBox("PDF OCR 보강 사용")
+        self.ocr_enabled_check.setChecked(self.ocr_enabled)
+        self.ocr_enabled_check.setToolTip("OCR 엔진이 연결된 경우 이미지 PDF와 스캔 페이지의 텍스트 추출을 시도합니다")
+        self.ocr_enabled_check.stateChanged.connect(lambda *_: self._on_ocr_enabled_changed())
+        search_layout.addWidget(self.ocr_enabled_check)
+
+        self.ocr_mixed_pdf_check = QCheckBox("혼합 PDF의 빈 페이지도 OCR 보강")
+        self.ocr_mixed_pdf_check.setChecked(self.ocr_mixed_pdf)
+        self.ocr_mixed_pdf_check.setToolTip("텍스트가 일부만 추출되는 PDF에서 빈 페이지가 있으면 OCR 결과를 함께 합칩니다")
+        self.ocr_mixed_pdf_check.stateChanged.connect(lambda *_: self._on_ocr_mixed_pdf_changed())
+        search_layout.addWidget(self.ocr_mixed_pdf_check)
+        self._sync_ocr_controls()
+
         layout.addWidget(search_card)
 
         display_card = self._create_setting_card("🎨 표시 설정")

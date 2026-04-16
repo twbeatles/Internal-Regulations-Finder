@@ -80,3 +80,32 @@ def test_safe_read_falls_back_to_charset_normalizer(monkeypatch, tmp_path):
     assert error is None
     assert called["charset"] is True
     assert isinstance(text, str)
+
+
+def test_discover_files_skips_permission_denied_subtree(monkeypatch, tmp_path):
+    root = tmp_path / "docs"
+    root.mkdir()
+    allowed = root / "allowed.txt"
+    allowed.write_text("ok", encoding="utf-8")
+    blocked = root / "blocked"
+    blocked.mkdir()
+
+    original_scandir = file_utils_module.os.scandir
+
+    def fake_scandir(path: str):
+        if os.path.normpath(path) == os.path.normpath(str(blocked)):
+            raise PermissionError("denied")
+        return original_scandir(path)
+
+    monkeypatch.setattr(file_utils_module.os, "scandir", fake_scandir)
+
+    skipped_paths: list[str] = []
+    discovered = FileUtils.discover_files(
+        str(root),
+        recursive=True,
+        supported_extensions=(".txt",),
+        skipped_paths=skipped_paths,
+    )
+
+    assert [item.name for item in discovered] == ["allowed.txt"]
+    assert skipped_paths == [os.path.normpath(str(blocked))]

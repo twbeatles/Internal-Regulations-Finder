@@ -14,6 +14,7 @@
 - frozen(onefile) 다운로드 취소는 현재 모델 완료 후 중단될 수 있음
 - 오프라인 임베딩 런타임은 `Pillow` / `scikit-learn` / `sentence_transformers` 사전검증 추가
 - `FileUtils.safe_read()`는 `UTF-8 -> CP949 -> EUC-KR` fast path 후 lazy `charset_normalizer` fallback 사용
+- 모델을 아직 로드하지 않은 상태에서도 폴더를 먼저 불러와 `bm25_only` 초기 인덱스를 만들 수 있음
 - 검색 정규화는 `regfinder.search_text`로 통합되어 BM25/필터/하이라이트가 같은 규칙을 사용
 - 무공백 한국어 질의와 조사 제거 기반 semantic matching을 지원
 - 검색 결과는 파일 단위로 그룹화되며 `match_count`, `snippet_chunk_idx`를 함께 유지
@@ -21,6 +22,10 @@
 - 벡터 인덱스 실패 시에도 GUI에서 `bm25_only` 검색 모드로 계속 검색 가능
 - 수정 파일 재추출 실패 시 기존 텍스트/청크는 현재 인덱스에서 제거되어 stale 검색 결과를 막음
 - 암호화 PDF는 폴더 로드 전 사전 검사 후 파일별 비밀번호를 세션 메모리로 재사용
+- 폴더 스캔 중 권한 없는 하위 폴더는 전체 실패 대신 제외 목록으로 수집하고 UI에 안내
+- OCR 설정(`PDF OCR 보강 사용`, `혼합 PDF의 빈 페이지도 OCR 보강`)은 config에 저장되고 mixed PDF 보강에 반영
+- 폴더 로드 취소/실패 시 이전 인덱스 상태를 복구해 current folder/file_infos/documents가 섞이지 않도록 정리
+- 검색 히스토리는 query 단독이 아니라 전체 검색 조건 기준으로 dedup
 - 검색 결과/북마크 CSV 내보내기는 `csv` writer 기반 escaping을 사용
 - 캐시 삭제 시 메모리 상태/결과/진단/PDF 비밀번호 세션을 함께 초기화
 - 진단 탭/내부 상태는 `search_mode`, `vector_ready`, `memory_warning`를 표시
@@ -63,6 +68,7 @@
 5. 추적 텍스트 파일은 `.editorconfig`, `.gitattributes` 기준으로 `UTF-8(no BOM)` / `LF` 유지
 6. PyInstaller 경량화 시 `PIL` / `Pillow` / `scikit-learn` / `charset_normalizer` 제외 여부를 먼저 검토
 7. 로컬 테스트/로그 산출물(`.pytest_localappdata/`, `.regfinder_logs/`)은 `.gitignore`로만 관리하고 커밋하지 않음
+8. 앱 종료 시 cancel 요청만 보내고 바로 registry를 비우지 말고, 가능한 범위에서 worker 종료를 기다린 뒤 정리
 
 ## 검증 명령
 
@@ -74,3 +80,6 @@ python -m py_compile "사내 규정검색기 v9 PyQt6.spec"
 python -m unittest discover -s tests -v
 python -m pytest -q
 ```
+
+- 2026-04-16 기준 `python -m pyright .` 0 errors
+- 2026-04-16 기준 spec 검토 결과: 추가 hidden import 변경 필요 없음

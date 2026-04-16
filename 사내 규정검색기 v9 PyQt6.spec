@@ -22,6 +22,9 @@
     경량화 시 `Pillow` / `scikit-learn` 제외 여부를 주의해야 합니다.
     `FileUtils.safe_read()` 는 `charset_normalizer` 를 동적 import 하므로,
     lazy fallback 경로가 EXE에서도 유지되도록 hiddenimports에 포함합니다.
+    2026-04-16 기준 구현 리스크 후속 반영(OCR UI 옵션, mixed PDF OCR 보강,
+    model-less BM25 초기 인덱싱, permission-denied subtree skip, folder-load 상태 복구)은
+    모두 기존 런타임 모듈 내부 로직 변경이며, 추가 hiddenimports/datas 증설은 필요하지 않았습니다.
     설정창 모델 다운로드 상태 표시는 `models--<org>--<name>/blobs,snapshots`
     Hugging Face 캐시 구조를 기준으로 판별합니다.
     `pyrightconfig.json`, `.editorconfig`, `.gitattributes`, `.vscode/settings.json`

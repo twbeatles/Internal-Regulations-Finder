@@ -129,6 +129,41 @@ def test_process_documents_reuses_text_cache_when_model_changes(monkeypatch, tmp
     assert (Path(qa.cache_path) / "vector").exists()
 
 
+def test_process_documents_builds_bm25_index_without_loaded_model(monkeypatch, tmp_path):
+    folder = tmp_path / "docs"
+    folder.mkdir()
+    fp = folder / "sample.txt"
+    fp.write_text("휴가 규정 본문", encoding="utf-8")
+
+    qa = RegulationQASystem()
+    qa.cache_path = str(tmp_path / "cache")
+
+    class _FakeExtractor:
+        def extract(self, path: str, pdf_password=None, ocr_engine=None):
+            return Path(path).read_text(encoding="utf-8"), None
+
+    monkeypatch.setattr(RegulationQASystem, "_import_text_splitter", lambda self: _FakeSplitter)
+    monkeypatch.setattr(RegulationQASystem, "_import_document_class", lambda self: _FakeDocument)
+    qa.extractor = cast(Any, _FakeExtractor())
+
+    discovered_files = FileUtils.discover_files(
+        str(folder),
+        recursive=False,
+        supported_extensions=AppConfig.SUPPORTED_EXTENSIONS,
+    )
+    result = qa.process_documents(str(folder), discovered_files, lambda *_: None)
+
+    assert result.success is True
+    assert result.data["vector_ready"] is False
+    assert result.data["search_mode"] == "bm25_only"
+    assert qa.current_vector_cache_dir == ""
+
+    search_result = qa.search("휴가규정", k=3, hybrid=True)
+
+    assert search_result.success is True
+    assert qa.last_search_stats.search_mode == "bm25_only"
+
+
 def test_load_model_skips_same_model_reload(monkeypatch, tmp_path):
     calls: list[str] = []
 
@@ -379,6 +414,65 @@ def test_process_documents_drops_stale_cache_when_modified_file_reextract_fails(
     assert stale_search.data == []
     assert stable_search.success is True
     assert stable_search.data[0]["source"] == "other.txt"
+
+
+def test_process_documents_restores_previous_index_when_canceled(monkeypatch, tmp_path):
+    first_folder = tmp_path / "first"
+    second_folder = tmp_path / "second"
+    first_folder.mkdir()
+    second_folder.mkdir()
+    (first_folder / "first.txt").write_text("첫 번째 규정", encoding="utf-8")
+    (second_folder / "second.txt").write_text("두 번째 규정", encoding="utf-8")
+
+    qa = RegulationQASystem()
+    qa.cache_path = str(tmp_path / "cache")
+    qa.embedding_model = object()
+    qa.model_id = "demo/model-a"
+
+    cancel_state = {"flag": False}
+
+    class _CancelableExtractor:
+        def extract(self, path: str, pdf_password=None, ocr_engine=None):
+            if path.endswith("second.txt"):
+                cancel_state["flag"] = True
+            return Path(path).read_text(encoding="utf-8"), None
+
+    monkeypatch.setattr(RegulationQASystem, "_import_text_splitter", lambda self: _FakeSplitter)
+    monkeypatch.setattr(RegulationQASystem, "_import_document_class", lambda self: _FakeDocument)
+    monkeypatch.setattr(RegulationQASystem, "_build_vector_store_from_memory", lambda self, cancel_check=None: False)
+    qa.extractor = cast(Any, _CancelableExtractor())
+
+    first_files = FileUtils.discover_files(
+        str(first_folder),
+        recursive=False,
+        supported_extensions=AppConfig.SUPPORTED_EXTENSIONS,
+    )
+    first_result = qa.process_documents(str(first_folder), first_files, lambda *_: None)
+    assert first_result.success is True
+
+    before_documents = list(qa.documents)
+    before_file_paths = sorted(qa.file_infos.keys())
+    before_folder_path = qa.current_folder
+    before_search_mode = qa.get_search_mode(True)
+
+    second_files = FileUtils.discover_files(
+        str(second_folder),
+        recursive=False,
+        supported_extensions=AppConfig.SUPPORTED_EXTENSIONS,
+    )
+    canceled = qa.process_documents(
+        str(second_folder),
+        second_files,
+        lambda *_: None,
+        cancel_check=lambda: cancel_state["flag"],
+    )
+
+    assert canceled.success is False
+    assert canceled.error_code == "DOCS_CANCELED"
+    assert qa.current_folder == before_folder_path
+    assert qa.documents == before_documents
+    assert sorted(qa.file_infos.keys()) == before_file_paths
+    assert qa.get_search_mode(True) == before_search_mode
 
 
 def test_search_scores_do_not_use_vector_or_bm25_weight_ceiling():

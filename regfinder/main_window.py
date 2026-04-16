@@ -92,6 +92,8 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         self.font_size = AppConfig.DEFAULT_FONT_SIZE
         self.hybrid = True
         self.recursive = False
+        self.ocr_enabled = False
+        self.ocr_mixed_pdf = False
         self.keep_search_text = True
         self.sort_by = "score_desc"
         self.search_filters = {"extension": "", "filename": "", "path": ""}
@@ -177,11 +179,11 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         self._set_search_controls_enabled(search_ready and not any_busy)
 
         if hasattr(self, "folder_btn"):
-            self.folder_btn.setEnabled(model_ready and not any_busy)
+            self.folder_btn.setEnabled(not any_busy)
         if hasattr(self, "recent_btn"):
             self.recent_btn.setEnabled(any(os.path.isdir(p) for p in self.recents.get()) and not any_busy)
         if hasattr(self, "refresh_btn"):
-            self.refresh_btn.setEnabled(bool(self.last_folder) and model_ready and not any_busy)
+            self.refresh_btn.setEnabled(bool(self.last_folder) and not any_busy)
         if hasattr(self, "reload_model_btn"):
             self.reload_model_btn.setEnabled(model_ready and not any_busy)
         if hasattr(self, "download_all_btn"):
@@ -456,8 +458,9 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             self.pdf_passwords.pop(info.path, None)
 
     def _handle_download_cancel_requested(self, worker: ModelDownloadThread) -> None:
-        if getattr(sys, "frozen", False) and getattr(self, "progress_dialog", None) is not None:
-            self.progress_dialog.set_cancel_pending(
+        progress_dialog = getattr(self, "progress_dialog", None)
+        if getattr(sys, "frozen", False) and progress_dialog is not None:
+            progress_dialog.set_cancel_pending(
                 "현재 모델 다운로드가 끝나면 중단됩니다.",
                 button_text="중단 요청됨",
             )
@@ -647,12 +650,14 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         """폴더 로드 및 문서 처리 시작"""
         if not self._guard_busy_action("폴더 로드"):
             return
+        skipped_paths: list[str] = []
         try:
             recursive_enabled = self.recursive_check.isChecked() if hasattr(self, "recursive_check") else self.recursive
             files = FileUtils.discover_files(
                 folder,
                 recursive=recursive_enabled,
                 supported_extensions=AppConfig.SUPPORTED_EXTENSIONS,
+                skipped_paths=skipped_paths,
             )
         except PermissionError:
             QMessageBox.critical(self, "오류", "폴더 접근 권한이 없습니다.")
@@ -662,15 +667,23 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             return
         
         if not files:
-            QMessageBox.warning(self, "경고", f"지원되는 파일이 없습니다.\n\n지원 형식: {', '.join(AppConfig.SUPPORTED_EXTENSIONS)}")
+            if skipped_paths:
+                preview = "\n".join(f"- {path}" for path in skipped_paths[:5])
+                more = f"\n...외 {len(skipped_paths) - 5}개" if len(skipped_paths) > 5 else ""
+                QMessageBox.warning(
+                    self,
+                    "경고",
+                    "지원되는 파일을 찾지 못했습니다.\n\n"
+                    f"권한 때문에 제외된 경로가 {len(skipped_paths)}개 있습니다.\n{preview}{more}",
+                )
+            else:
+                QMessageBox.warning(self, "경고", f"지원되는 파일이 없습니다.\n\n지원 형식: {', '.join(AppConfig.SUPPORTED_EXTENSIONS)}")
             return
 
         pdf_passwords = self._prepare_pdf_passwords(files)
         if pdf_passwords is None:
             return
-        
-        self.folder_label.setText(folder)
-        self.folder_label.setToolTip(folder)
+
         self.folder_btn.setEnabled(False)
         
         self.progress_dialog = ProgressDialog(self, "문서 처리 중")
@@ -680,9 +693,15 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         self.progress_dialog.move(dialog_x, dialog_y)
         self.progress_dialog.show()
         
-        worker = DocumentProcessorThread(self.qa, folder, files, pdf_passwords=pdf_passwords)
+        worker = DocumentProcessorThread(
+            self.qa,
+            folder,
+            files,
+            pdf_passwords=pdf_passwords,
+            ocr_options=self._gather_ocr_options(),
+        )
         worker.progress.connect(self.progress_dialog.update_progress)
-        worker.finished.connect(lambda r: self._on_folder_done(r, folder))
+        worker.finished.connect(lambda r: self._on_folder_done(r, folder, list(skipped_paths)))
         worker.finished.connect(lambda *_: self.workers.clear("docs"))
         worker.finished.connect(lambda *_: worker.deleteLater())
         # 취소 시그널 연결
@@ -691,14 +710,19 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         worker.start()
         self._refresh_action_buttons()
     
-    def _on_folder_done(self, result, folder):
+    def _on_folder_done(self, result, folder, skipped_paths=None):
         """폴더 처리 완료 핸들러"""
-        self.progress_dialog.close()
-        self.progress_dialog.deleteLater()  # 위젯 메모리 해제
+        progress_dialog = getattr(self, "progress_dialog", None)
+        if progress_dialog is not None:
+            progress_dialog.close()
+            progress_dialog.deleteLater()  # 위젯 메모리 해제
+            self.progress_dialog = None
         self._refresh_action_buttons()
         
         if result.success:
             self._purge_failed_pdf_passwords()
+            self.folder_label.setText(folder)
+            self.folder_label.setToolTip(folder)
             self.last_folder = folder
             self.recents.add(folder)
             self._save_config()
@@ -727,6 +751,13 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
                 notices.append(
                     f"대규모 인덱스 경고: 현재 청크 수 {int(data.get('memory_warning_chunks', chunks) or chunks)}개로 메모리 사용량이 커질 수 있습니다."
                 )
+            if skipped_paths:
+                preview = "\n".join(f"- {path}" for path in skipped_paths[:5])
+                more = f"\n...외 {len(skipped_paths) - 5}개" if len(skipped_paths) > 5 else ""
+                notices.append(
+                    "일부 경로는 접근 권한 문제로 이번 스캔에서 제외되었습니다.\n\n"
+                    f"제외 경로 {len(skipped_paths)}개:\n{preview}{more}"
+                )
             self._show_status(status_message, status_color)
             if self._has_searchable_index():
                 self.search_input.setFocus()
@@ -745,10 +776,13 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
                     f"{failed_count}개 파일 처리 실패:\n\n{failed_list}{more_msg}\n\n실패한 파일은 이번 인덱스에서 제외되었습니다."
                 )
         else:
-            self._show_status(f"❌ {result.message}", "#ef4444")
+            self._update_file_table()
+            self._update_cache_size_display(refresh_async=True)
+            self._show_empty_state("ready" if self._has_searchable_index() else "welcome")
+            self._show_status(result.message, "#ef4444")
             self._update_internal_state_display()
             self._schedule_diagnostics_refresh()
-            if result.message != "사용자에 의해 취소됨":
+            if getattr(result, "error_code", "") != "DOCS_CANCELED":
                 self._show_task_error("문서 처리 오류", result)
     
     def _update_file_table(self):
@@ -808,10 +842,7 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
         if not query:
             return
         if not self._has_searchable_index():
-            if self.qa.embedding_model is None:
-                QMessageBox.warning(self, "경고", "모델을 먼저 로드하세요")
-            else:
-                QMessageBox.warning(self, "경고", "문서를 먼저 로드하세요")
+            QMessageBox.warning(self, "경고", "문서를 먼저 로드하세요")
             return
         
         # 이전 검색 스레드가 실행 중이면 무시
@@ -1375,7 +1406,16 @@ class MainWindow(MainWindowUIBuilderMixin, MainWindowInsightsMixin, MainWindowCo
             self._show_task_error("다운로드 결과", r, icon=QMessageBox.Icon.Warning)
     
     def closeEvent(self, a0: QCloseEvent | None):
+        active_workers = self.workers.items()
         self.workers.cancel_all()
+        for key, worker in active_workers:
+            wait_fn = getattr(worker, "wait", None)
+            if callable(wait_fn):
+                try:
+                    wait_fn(5000)
+                except Exception:
+                    pass
+            self.workers.clear(key)
         self._clear_search_progress_card()
         progress_dialog = getattr(self, "progress_dialog", None)
         if progress_dialog is not None:

@@ -117,6 +117,12 @@
 15. 검색 히스토리 확장 저장(`filters`, `sort_by`, `k`, `hybrid`): **완료**
 16. 파일/북마크 숫자 정렬 + 결과 카드 폰트 즉시 반영: **완료**
 17. Pyright/Pylance 설정 정합화 + UTF-8/로컬 temp 경로 안정화: **완료**
+18. 모델 미로드 상태 BM25-only 초기 인덱싱: **완료**
+19. 폴더 로드 취소 시 이전 인덱스 상태 복구: **완료**
+20. 권한 없는 하위 폴더 skip + 사용자 공지: **완료**
+21. OCR 설정 저장 / 혼합 PDF OCR 보강: **완료**
+22. 검색 히스토리 full-context dedup: **완료**
+23. 종료 시 worker wait 후 cleanup: **완료**
 
 ---
 
@@ -204,6 +210,21 @@
    - 결과/파일 목록/진단과 세션 PDF 비밀번호를 함께 초기화
    - 파일 테이블/결과 영역/버튼 상태를 메모리 리셋 결과와 맞춤
 
+### 5-4) 2026-04-16 구현 리스크 후속 반영
+
+1. 초기 인덱싱 진입 완화
+   - 모델이 아직 없어도 폴더 로드와 `bm25_only` 검색이 가능하도록 조정
+2. 폴더 로드 cancel/fail 복구
+   - `current_folder`, `file_infos`, `documents`, `search_mode`가 섞이지 않도록 이전 상태를 복원
+3. 권한 예외 내성 강화
+   - 접근 권한이 없는 하위 경로를 skip하고 제외 목록을 UI에 노출
+4. OCR 운영 옵션 표면화
+   - 설정 탭에서 OCR 보강 여부와 mixed PDF 보강 여부를 저장/적용
+5. 히스토리 정합성 보강
+   - 동일 query라도 다른 filter/sort/k/hybrid 조합은 별도 항목으로 유지
+6. 종료 안정화
+   - cancel 후 즉시 registry만 비우지 않고 가능한 범위에서 worker 종료를 기다린 뒤 cleanup
+
 ---
 
 ## 6) 문서/정합성 기준
@@ -212,6 +233,7 @@
 - 기본 검증 게이트는 `python -m pyright .`, `python tools/smoke_refactor.py`, `python tools/benchmark_performance.py`, `python -m pytest -q`
 - 추적 텍스트 파일은 `UTF-8(no BOM)` 기준 유지
 - Windows PowerShell/Python 출력의 표시 깨짐은 실제 저장소 인코딩 손상과 구분해서 확인
+- `FUNCTIONAL_REVIEW_2026-03-19.md`, `UI_UX_REVIEW_2026-03-25.md`, `IMPLEMENTATION_RISK_REVIEW_2026-04-16.md`는 구현 완료/후속 상태를 함께 기록하는 기준 문서로 유지
 
 ---
 

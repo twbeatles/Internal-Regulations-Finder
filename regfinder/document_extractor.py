@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 import os
@@ -8,6 +8,7 @@ from typing import Any, List, Optional, Protocol, Sequence, Tuple, cast
 
 from .file_utils import FileUtils
 from .runtime import _import_attr, _import_module
+
 
 class BaseOCREngine:
     """PDF 이미지 OCR 확장 포인트."""
@@ -97,7 +98,7 @@ class DocumentExtractor:
         self._docx_import_attempted = docx_factory is not None
         self._pdf_import_attempted = pdf_reader_factory is not None
         self._hwp_import_attempted = hwp_module is not None
-    
+
     @property
     def docx(self) -> Optional[DocxFactory]:
         if not self._docx_import_attempted:
@@ -107,7 +108,7 @@ class DocumentExtractor:
             except ImportError:
                 self._docx_factory = None
         return self._docx_factory
-    
+
     @property
     def pdf(self) -> Optional[PdfReaderFactory]:
         if not self._pdf_import_attempted:
@@ -134,25 +135,31 @@ class DocumentExtractor:
         path: str,
         pdf_password: Optional[str] = None,
         ocr_engine: Optional[BaseOCREngine] = None,
+        ocr_options: Optional[dict[str, Any]] = None,
     ) -> Tuple[str, Optional[str]]:
         if not path or not os.path.exists(path):
             return "", f"파일 없음: {path}"
         if not os.path.isfile(path):
             return "", f"파일이 아님: {path}"
         ext = os.path.splitext(path)[1].lower()
-        if ext == '.txt':
+        if ext == ".txt":
             return self._extract_txt(path)
-        elif ext == '.docx':
+        if ext == ".docx":
             return self._extract_docx(path)
-        elif ext == '.pdf':
-            return self._extract_pdf(path, pdf_password=pdf_password, ocr_engine=ocr_engine)
-        elif ext == '.hwp':
+        if ext == ".pdf":
+            return self._extract_pdf(
+                path,
+                pdf_password=pdf_password,
+                ocr_engine=ocr_engine,
+                ocr_options=ocr_options,
+            )
+        if ext == ".hwp":
             return self._extract_hwp(path)
         return "", f"지원하지 않는 형식: {ext}"
-    
+
     def _extract_txt(self, path: str) -> Tuple[str, Optional[str]]:
         return FileUtils.safe_read(path)
-    
+
     def _extract_docx(self, path: str) -> Tuple[str, Optional[str]]:
         docx_factory = self.docx
         if docx_factory is None:
@@ -167,11 +174,11 @@ class DocumentExtractor:
                 for row in table.rows:
                     cells = [c.text.strip() for c in row.cells if c.text.strip()]
                     if cells:
-                        parts.append(' | '.join(cells))
-            return '\n\n'.join(parts), None
+                        parts.append(" | ".join(cells))
+            return "\n\n".join(parts), None
         except Exception as e:
             return "", f"DOCX 오류: {e}"
-    
+
     def _try_pdf_decrypt(self, reader: PdfReaderLike, password: str) -> bool:
         try:
             result = reader.decrypt(password)
@@ -188,6 +195,7 @@ class DocumentExtractor:
         path: str,
         pdf_password: Optional[str] = None,
         ocr_engine: Optional[BaseOCREngine] = None,
+        ocr_options: Optional[dict[str, Any]] = None,
     ) -> Tuple[str, Optional[str]]:
         pdf_reader_factory = self.pdf
         if pdf_reader_factory is None:
@@ -201,17 +209,21 @@ class DocumentExtractor:
                 elif not self._try_pdf_decrypt(reader, ""):
                     return "", "암호화된 PDF (비밀번호 필요)"
 
-            texts = []
+            texts: List[str] = []
+            has_empty_page = False
             for page in reader.pages:
                 try:
                     text = page.extract_text()
                     if text and text.strip():
                         texts.append(text.strip())
+                    else:
+                        has_empty_page = True
                 except Exception:
+                    has_empty_page = True
                     continue
 
+            engine = ocr_engine or NoOpOCREngine()
             if not texts:
-                engine = ocr_engine or NoOpOCREngine()
                 try:
                     ocr_text, ocr_error = engine.extract_pdf_images(path)
                     if ocr_text and ocr_text.strip():
@@ -222,13 +234,25 @@ class DocumentExtractor:
                     return "", f"텍스트 없음 (이미지 PDF, OCR 오류: {e})"
                 return "", "텍스트 없음 (이미지 PDF)"
 
-            return '\n\n'.join(texts), None
+            if has_empty_page and isinstance(ocr_options, dict) and bool(ocr_options.get("mixed_pdf", False)):
+                try:
+                    ocr_text, _ = engine.extract_pdf_images(path)
+                except Exception:
+                    ocr_text = ""
+                if ocr_text and ocr_text.strip():
+                    merged_text = "\n\n".join(texts)
+                    compact_existing = re.sub(r"\s+", "", merged_text)
+                    compact_ocr = re.sub(r"\s+", "", ocr_text.strip())
+                    if compact_ocr and compact_ocr not in compact_existing:
+                        return f"{merged_text}\n\n{ocr_text.strip()}", None
+
+            return "\n\n".join(texts), None
         except Exception as e:
             return "", f"PDF 오류: {e}"
-    
+
     @property
     def hwp(self) -> Optional[HwpModule]:
-        """HWP 파일 처리용 olefile 모듈 로드"""
+        """HWP 파일 처리를 위한 olefile 모듈 로드"""
         if not self._hwp_import_attempted:
             self._hwp_import_attempted = True
             try:
@@ -236,7 +260,7 @@ class DocumentExtractor:
             except ImportError:
                 self._hwp_module = None
         return self._hwp_module
-    
+
     def _extract_hwp(self, path: str) -> Tuple[str, Optional[str]]:
         """HWP 파일에서 텍스트 추출 (olefile 사용)"""
         hwp_module = self.hwp
@@ -318,7 +342,7 @@ class DocumentExtractor:
             try:
                 raw = ole.openstream(stream_name).read()
             except Exception as e:
-                errors.append(f"{stream_name}: 스트림 열기 실패 ({e})")
+                errors.append(f"{stream_name}: 스트림 읽기 실패 ({e})")
                 continue
 
             decoded = self._decode_hwp_text(raw)

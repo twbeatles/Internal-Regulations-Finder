@@ -334,6 +334,21 @@ def test_model_only_state_disables_search_panel(monkeypatch, tmp_path):
     window.close()
 
 
+def test_folder_actions_stay_enabled_without_loaded_model(monkeypatch, tmp_path):
+    folder = tmp_path / "docs"
+    folder.mkdir()
+
+    window = _make_window(monkeypatch, tmp_path, RegulationQASystem())
+
+    assert window.folder_btn.isEnabled() is True
+
+    window.last_folder = str(folder)
+    window._refresh_action_buttons()
+
+    assert window.refresh_btn.isEnabled() is True
+    window.close()
+
+
 def test_search_keeps_previous_results_and_shows_inline_progress(monkeypatch, tmp_path):
     qa = RegulationQASystem()
     qa.embedding_model = object()
@@ -521,11 +536,15 @@ def test_file_and_bookmark_tables_sort_numerically(monkeypatch, tmp_path):
     window._update_file_table()
     window.file_table.sortItems(2)
     _get_app().processEvents()
-    assert window.file_table.item(0, 1).text() == "작은파일.txt"
+    first_file_item = window.file_table.item(0, 1)
+    assert first_file_item is not None
+    assert first_file_item.text() == "작은파일.txt"
 
     window.file_table.sortItems(3)
     _get_app().processEvents()
-    assert window.file_table.item(0, 1).text() == "큰파일.txt"
+    first_chunk_item = window.file_table.item(0, 1)
+    assert first_chunk_item is not None
+    assert first_chunk_item.text() == "큰파일.txt"
 
     window.bookmarks.items = [
         {"ts": "2026-03-25T10:00:00", "query": "q1", "source": "a", "path": "a", "score": 10.0, "content": "a"},
@@ -534,5 +553,7 @@ def test_file_and_bookmark_tables_sort_numerically(monkeypatch, tmp_path):
     window._refresh_bookmarks_table()
     window.bookmark_table.sortItems(3)
     _get_app().processEvents()
-    assert window.bookmark_table.item(0, 2).text() == "b"
+    first_bookmark_item = window.bookmark_table.item(0, 2)
+    assert first_bookmark_item is not None
+    assert first_bookmark_item.text() == "b"
     window.close()

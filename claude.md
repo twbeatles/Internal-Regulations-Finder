@@ -74,6 +74,12 @@ This file tracks architecture and maintenance rules after modularization and fol
 - Results/bookmarks CSV exports use Python `csv` writer escaping, and cache clear resets memory state plus session PDF passwords while keeping the loaded model when available.
 - Text cache is reused across model switches; vector cache is model-specific.
 - `FileUtils.safe_read()` uses `UTF-8 -> CP949 -> EUC-KR` fast path and lazily imports `charset_normalizer` only on fallback.
+- Folder loading can begin before a model is loaded; initial indexing may stay in `bm25_only` until embeddings are available.
+- Folder scan skips permission-denied subtrees, records skipped paths, and surfaces them back to the UI as notices.
+- OCR settings are persisted in config and the extractor can append OCR text for mixed PDFs with empty pages.
+- Canceling or failing a folder load restores the previous in-memory index state instead of leaving mixed folder/runtime state behind.
+- Search history deduplicates by full search context (`q + filters + sort_by + k + hybrid`), not by query string alone.
+- Application shutdown now waits briefly for canceled workers before clearing the registry and runtime state.
 - Settings model selector surfaces download status and prioritizes downloaded models using Hugging Face cache directory detection.
 - Model download state access is strongly typed via `ModelDownloadState`, preventing Pylance drift in selector/status UI.
 - Cache usage display is refreshed via worker and model download state is cached in `model_inventory.json`.
@@ -131,6 +137,7 @@ This file tracks architecture and maintenance rules after modularization and fol
 - Spec keeps `charset_normalizer` hiddenimports because encoding fallback is loaded dynamically.
 - Spec excludes dev-only tooling such as `pytest`, `pyright`, `mypy`.
 - Do not exclude `PIL` / `Pillow` or `scikit-learn` while slimming the EXE; packaged `sentence_transformers` import path depends on them.
+- 2026-04-16 hardening review did not require additional hiddenimports or datas; OCR UI/settings are runtime-only and use the existing extraction hook.
 
 ---
 

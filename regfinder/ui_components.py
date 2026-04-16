@@ -59,6 +59,18 @@ class SearchHistory:
         self.path = get_history_path()
         self._load()
 
+    def _entry_key(self, item: SearchHistoryEntry) -> tuple[str, str, str, str, str, int, bool]:
+        filters = item.get("filters", {})
+        return (
+            str(item.get("q", "") or ""),
+            str(filters.get("extension", "") or ""),
+            str(filters.get("filename", "") or ""),
+            str(filters.get("path", "") or ""),
+            str(item.get("sort_by", "score_desc") or "score_desc"),
+            int(item.get("k", AppConfig.DEFAULT_SEARCH_RESULTS) or AppConfig.DEFAULT_SEARCH_RESULTS),
+            bool(item.get("hybrid", True)),
+        )
+
     def _normalize_item(self, raw: Any) -> SearchHistoryEntry | None:
         if isinstance(raw, dict):
             query = str(raw.get("q", "") or "").strip()
@@ -151,7 +163,8 @@ class SearchHistory:
             "k": int(max(1, min(int(k or AppConfig.DEFAULT_SEARCH_RESULTS), AppConfig.MAX_SEARCH_RESULTS))),
             "hybrid": bool(hybrid),
         }
-        self.items = [item for item in self.items if item["q"] != query]
+        entry_key = self._entry_key(entry)
+        self.items = [item for item in self.items if self._entry_key(item) != entry_key]
         self.items.insert(0, entry)
         self.items = self.items[: AppConfig.MAX_HISTORY_SIZE]
         self._save()

@@ -82,6 +82,8 @@ class ConfigManager:
             "font": AppConfig.DEFAULT_FONT_SIZE,
             "hybrid": True,
             "recursive": False,
+            "ocr_enabled": False,
+            "ocr_mixed_pdf": False,
             "keep_search_text": True,
             "sort_by": "score_desc",
             "filters": {
@@ -106,6 +108,8 @@ class ConfigManager:
             migrated["model"] = raw.get("model", defaults["model"]) or defaults["model"]
             migrated["font"] = raw.get("font", defaults["font"]) or defaults["font"]
             migrated["hybrid"] = bool(raw.get("hybrid", defaults["hybrid"]))
+            migrated["ocr_enabled"] = bool(raw.get("ocr_enabled", defaults["ocr_enabled"]))
+            migrated["ocr_mixed_pdf"] = bool(raw.get("ocr_mixed_pdf", defaults["ocr_mixed_pdf"]))
             migrated["keep_search_text"] = bool(raw.get("keep_search_text", defaults["keep_search_text"]))
             return migrated
 
@@ -118,6 +122,8 @@ class ConfigManager:
         cfg["font"] = int(raw.get("font", defaults["font"]) or defaults["font"])
         cfg["hybrid"] = bool(raw.get("hybrid", defaults["hybrid"]))
         cfg["recursive"] = bool(raw.get("recursive", defaults["recursive"]))
+        cfg["ocr_enabled"] = bool(raw.get("ocr_enabled", defaults["ocr_enabled"]))
+        cfg["ocr_mixed_pdf"] = bool(raw.get("ocr_mixed_pdf", defaults["ocr_mixed_pdf"]))
         cfg["keep_search_text"] = bool(raw.get("keep_search_text", defaults["keep_search_text"]))
         cfg["sort_by"] = str(raw.get("sort_by", defaults["sort_by"]) or defaults["sort_by"])
         filters = raw.get("filters", {})
@@ -137,6 +143,8 @@ class ConfigManager:
         if not isinstance(recents, list):
             recents = []
         payload["recent_folders"] = [x for x in recents if isinstance(x, str) and x][:AppConfig.MAX_RECENT_FOLDERS]
+        payload["ocr_enabled"] = bool(payload.get("ocr_enabled", False))
+        payload["ocr_mixed_pdf"] = bool(payload.get("ocr_mixed_pdf", False))
         payload["keep_search_text"] = bool(payload.get("keep_search_text", True))
         self._writer.schedule(payload)
 

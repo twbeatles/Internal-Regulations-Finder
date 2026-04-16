@@ -205,3 +205,21 @@ def test_search_history_loads_legacy_and_extended_schema(monkeypatch, tmp_path):
         "k": 4,
         "hybrid": True,
     }
+
+
+def test_search_history_deduplicates_exact_condition_only(monkeypatch, tmp_path):
+    history_path = tmp_path / "history.json"
+    monkeypatch.setattr("regfinder.ui_components.get_history_path", lambda: str(history_path))
+
+    history = SearchHistory()
+    history.add("휴가", filters={"extension": ".pdf", "filename": "", "path": ""}, sort_by="score_desc", k=3, hybrid=True)
+    history.add("휴가", filters={"extension": ".txt", "filename": "", "path": ""}, sort_by="mtime_desc", k=5, hybrid=False)
+    history.add("휴가", filters={"extension": ".pdf", "filename": "", "path": ""}, sort_by="score_desc", k=3, hybrid=True)
+
+    items = history.get(10)
+
+    assert len(items) == 2
+    assert items[0]["filters"]["extension"] == ".pdf"
+    assert items[0]["sort_by"] == "score_desc"
+    assert items[1]["filters"]["extension"] == ".txt"
+    assert items[1]["sort_by"] == "mtime_desc"

@@ -96,6 +96,22 @@
 
 ---
 
+## Phase 6: Implementation Risk Hardening (2026-04-16)
+
+| Source | Extracted/Added | Purpose |
+|---|---|---|
+| `regfinder/model_inventory.py` | deadlock-safe `snapshot()` | 빈 인벤토리 첫 조회 시 lock 재진입 교착 방지 |
+| `regfinder/file_utils.py` | `skipped_paths` discovery flow | 권한 없는 하위 폴더를 전체 실패 대신 skip |
+| `regfinder/main_window.py` | delayed folder label commit / skip notice | 폴더 로드 성공 전 UI 상태 오염 방지 및 제외 경로 공지 |
+| `regfinder/main_window_ui_mixin.py` / `main_window_mixins.py` | OCR controls + persisted config | OCR 운영 옵션을 UI와 설정에 연결 |
+| `regfinder/document_extractor.py` | mixed PDF OCR append | 일부 페이지만 비어 있는 PDF에 OCR 텍스트 병합 |
+| `regfinder/qa_system.py` | state capture/restore | folder load cancel/fail 시 이전 인덱스 상태 복원 |
+| `regfinder/qa_system.py` | model-less BM25 processing | embedding model 없이도 초기 BM25 인덱싱 허용 |
+| `regfinder/ui_components.py` | exact-context history dedup | query만이 아닌 전체 검색 조건 기준 dedup |
+| `regfinder/worker_registry.py` / `main_window.py` | worker wait on shutdown | cancel 후 registry/runtime cleanup 순서 안정화 |
+
+---
+
 ## Repository Hygiene
 
 - `python -m pyright .` 기준 오류 0건 유지

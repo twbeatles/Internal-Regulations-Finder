@@ -36,11 +36,11 @@ class WorkerRegistry:
         worker = self.get(key)
         if not worker:
             return
-        try:
-            worker.cancel()
-        finally:
-            self.clear(key)
+        worker.cancel()
 
     def cancel_all(self) -> None:
         for key in list(self._workers.keys()):
             self.cancel(key)
+
+    def items(self) -> list[tuple[str, WorkerLike]]:
+        return list(self._workers.items())

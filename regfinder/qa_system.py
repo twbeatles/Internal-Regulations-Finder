@@ -103,6 +103,72 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
             self.embedding_model = None
             self.model_id = None
 
+    def _capture_index_state(self) -> Dict[str, Any]:
+        return {
+            "vector_store": self.vector_store,
+            "bm25": self.bm25,
+            "documents": list(self.documents),
+            "doc_meta": [dict(item) for item in self.doc_meta],
+            "doc_ids": list(self.doc_ids),
+            "doc_index_by_id": dict(self.doc_index_by_id),
+            "doc_search_fields": [dict(item) for item in self.doc_search_fields],
+            "text_cache_revision": self.text_cache_revision,
+            "current_folder": self.current_folder,
+            "current_text_cache_path": self.current_text_cache_path,
+            "current_vector_cache_dir": self.current_vector_cache_dir,
+            "loaded_vector_revision": self._loaded_vector_revision,
+            "loaded_vector_context": self._loaded_vector_context,
+            "vector_id_mode": self._vector_id_mode,
+            "file_infos": {
+                path: FileInfo(
+                    info.path,
+                    info.name,
+                    info.extension,
+                    info.size,
+                    info.status,
+                    info.chunks,
+                    info.error,
+                )
+                for path, info in self.file_infos.items()
+            },
+            "index_search_mode": self._index_search_mode,
+            "memory_warning": self._memory_warning,
+            "memory_warning_chunks": self._memory_warning_chunks,
+            "vector_ready": self._vector_ready,
+        }
+
+    def _restore_index_state(self, state: Dict[str, Any]) -> None:
+        self.vector_store = state.get("vector_store")
+        self.bm25 = state.get("bm25")
+        self.documents = list(state.get("documents", []))
+        self.doc_meta = [dict(item) for item in state.get("doc_meta", [])]
+        self.doc_ids = list(state.get("doc_ids", []))
+        self.doc_index_by_id = dict(state.get("doc_index_by_id", {}))
+        self.doc_search_fields = [dict(item) for item in state.get("doc_search_fields", [])]
+        self.text_cache_revision = int(state.get("text_cache_revision", 0) or 0)
+        self.current_folder = str(state.get("current_folder", "") or "")
+        self.current_text_cache_path = str(state.get("current_text_cache_path", "") or "")
+        self.current_vector_cache_dir = str(state.get("current_vector_cache_dir", "") or "")
+        self._loaded_vector_revision = int(state.get("loaded_vector_revision", 0) or 0)
+        self._loaded_vector_context = state.get("loaded_vector_context")
+        self._vector_id_mode = str(state.get("vector_id_mode", "auto") or "auto")
+        self.file_infos = {
+            path: FileInfo(
+                info.path,
+                info.name,
+                info.extension,
+                info.size,
+                info.status,
+                info.chunks,
+                info.error,
+            )
+            for path, info in state.get("file_infos", {}).items()
+        }
+        self._memory_warning = bool(state.get("memory_warning", False))
+        self._memory_warning_chunks = int(state.get("memory_warning_chunks", 0) or 0)
+        self._vector_ready = bool(state.get("vector_ready", False))
+        self._index_search_mode = str(state.get("index_search_mode", "") or "")
+
     def load_model(self, model_name: str, progress_cb=None, op_id: Optional[str] = None) -> TaskResult:
         op_id = op_id or new_op_id("MODEL")
         log = get_op_logger(op_id)
@@ -243,6 +309,11 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
         model_token = self._get_model_token()
         return os.path.join(self.cache_path, "vector", folder_token, model_token)
 
+    def _get_vector_cache_dir_if_available(self, folder: str) -> str:
+        if not self.model_id:
+            return ""
+        return self._get_vector_cache_dir(folder)
+
     def _get_cache_dir(self, folder: str) -> str:
         return self._get_vector_cache_dir(folder)
 
@@ -256,8 +327,6 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
         pdf_passwords: Optional[Dict[str, str]] = None,
         ocr_options: Optional[Dict[str, Any]] = None,
     ) -> TaskResult:
-        if not self.embedding_model:
-            return TaskResult(False, "모델이 로드되지 않았습니다", op_id=op_id or "", error_code="MODEL_NOT_LOADED")
         folder = os.path.normpath(os.path.abspath(folder))
         discovered_files = self._coerce_discovered_files(folder, files)
         op_id = op_id or new_op_id("DOCS")
@@ -266,6 +335,7 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
         log.info(f"문서 처리 시작: folder={folder} files={len(discovered_files)}")
         ocr_engine = self._resolve_ocr_engine(ocr_options)
         with self._lock:
+            previous_state = self._capture_index_state()
             result = self._process_internal(
                 folder,
                 discovered_files,
@@ -273,7 +343,10 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
                 cancel_check,
                 pdf_passwords=pdf_passwords,
                 ocr_engine=ocr_engine,
+                ocr_options=ocr_options,
             )
+            if not result.success:
+                self._restore_index_state(previous_state)
         elapsed_ms = int((datetime.now() - started).total_seconds() * 1000)
         result.op_id = result.op_id or op_id
         with self._diagnostics_lock:
@@ -325,10 +398,11 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
         cancel_check=None,
         pdf_passwords: Optional[Dict[str, str]] = None,
         ocr_engine: Optional[BaseOCREngine] = None,
+        ocr_options: Optional[Dict[str, Any]] = None,
     ) -> TaskResult:
         self.current_folder = folder
         self.current_text_cache_path = self._get_text_cache_path(folder)
-        self.current_vector_cache_dir = self._get_vector_cache_dir(folder)
+        self.current_vector_cache_dir = self._get_vector_cache_dir_if_available(folder)
         self.file_infos.clear()
 
         current: Dict[str, DiscoveredFile] = {}
@@ -405,9 +479,10 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
                 cancel_check,
                 pdf_passwords=pdf_passwords,
                 ocr_engine=ocr_engine,
+                ocr_options=ocr_options,
             )
             if cancel_check and cancel_check():
-                return TaskResult(False, "사용자에 의해 취소됨")
+                return TaskResult(False, "사용자에 의해 취소됨", error_code="DOCS_CANCELED")
             if replacements:
                 progress_cb(60, "텍스트 캐시 갱신 중...")
                 text_cache.replace_files(replacements)
@@ -420,12 +495,13 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
         self._update_memory_warning()
 
         if cancel_check and cancel_check():
-            return TaskResult(False, "사용자에 의해 취소됨")
+            return TaskResult(False, "사용자에 의해 취소됨", error_code="DOCS_CANCELED")
 
         removed_doc_ids = self._expand_doc_ids(old_chunk_counts)
         text_changed = bool(deleted_keys or added_keys or modified_keys)
         vector_ready = False
-        if self.documents:
+        can_vectorize = bool(self.embedding_model is not None and self.model_id)
+        if self.documents and can_vectorize:
             progress_cb(72, "벡터 인덱스 동기화 중...")
             synced = self._sync_vector_index(
                 folder,
@@ -444,7 +520,9 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
             self.vector_store = None
             self._vector_id_mode = "auto"
             self._loaded_vector_revision = self.text_cache_revision
-            self._save_vector_meta(self.current_vector_cache_dir, self.text_cache_revision, doc_count=0)
+            self._loaded_vector_context = None
+            if self.current_vector_cache_dir:
+                self._save_vector_meta(self.current_vector_cache_dir, self.text_cache_revision, doc_count=0)
             vector_ready = False
 
         self._refresh_runtime_flags()
@@ -591,6 +669,8 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
         progress_cb,
         cancel_check=None,
     ) -> bool:
+        if not self.embedding_model or not self.model_id:
+            return False
         cache_dir = self._get_vector_cache_dir(folder)
         if not text_changed and self._load_vector_cache(cache_dir, expected_revision=self.text_cache_revision):
             return True
@@ -651,6 +731,8 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
         return True
 
     def _build_vector_store_from_memory(self, cancel_check=None) -> bool:
+        if not self.embedding_model:
+            return False
         try:
             FAISS = _import_attr("langchain_community.vectorstores", "FAISS")
             Document = self._import_document_class()
@@ -1206,6 +1288,7 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
         cancel_check=None,
         pdf_passwords: Optional[Dict[str, str]] = None,
         ocr_engine: Optional[BaseOCREngine] = None,
+        ocr_options: Optional[Dict[str, Any]] = None,
     ) -> Tuple[
         List[str],
         List[TextCacheReplacement],
@@ -1240,11 +1323,13 @@ class RegulationQASystem(RegulationQADiagnosticsMixin):
                 info.status = FileStatus.PROCESSING
 
             try:
-                content, error = self.extractor.extract(
-                    discovered.path,
-                    pdf_password=(pdf_passwords or {}).get(discovered.path),
-                    ocr_engine=ocr_engine,
-                )
+                extract_kwargs = {
+                    "pdf_password": (pdf_passwords or {}).get(discovered.path),
+                    "ocr_engine": ocr_engine,
+                }
+                if ocr_options is not None:
+                    extract_kwargs["ocr_options"] = ocr_options
+                content, error = self.extractor.extract(discovered.path, **extract_kwargs)
                 if error:
                     failed.append(f"{discovered.name} ({error})")
                     if info is not None:

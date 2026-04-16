@@ -98,7 +98,12 @@ class ModelInventory:
             return {name: self._to_public_state(entry) for name, entry in self._entries.items()}
 
     def snapshot(self) -> ModelDownloadStateMap:
+        should_refresh = False
         with self._lock:
             if not self._entries:
-                return self.refresh(force=False)
-            return {name: self._to_public_state(entry) for name, entry in self._entries.items()}
+                should_refresh = True
+            else:
+                return {name: self._to_public_state(entry) for name, entry in self._entries.items()}
+        if should_refresh:
+            return self.refresh(force=False)
+        return {}

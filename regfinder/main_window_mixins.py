@@ -55,6 +55,8 @@ class MainWindowConfigMixin:
         self.font_size = cfg.get("font", AppConfig.DEFAULT_FONT_SIZE)
         self.hybrid = bool(cfg.get("hybrid", True))
         self.recursive = bool(cfg.get("recursive", False))
+        self.ocr_enabled = bool(cfg.get("ocr_enabled", False))
+        self.ocr_mixed_pdf = bool(cfg.get("ocr_mixed_pdf", False))
         self.keep_search_text = bool(cfg.get("keep_search_text", True))
         self.sort_by = str(cfg.get("sort_by", "score_desc") or "score_desc")
         self.search_filters = dict(cfg.get("filters", {}) or {"extension": "", "filename": "", "path": ""})
@@ -71,6 +73,8 @@ class MainWindowConfigMixin:
         self.font_size = AppConfig.DEFAULT_FONT_SIZE
         self.hybrid = True
         self.recursive = False
+        self.ocr_enabled = False
+        self.ocr_mixed_pdf = False
         self.keep_search_text = True
         self.sort_by = "score_desc"
         self.search_filters = {"extension": "", "filename": "", "path": ""}
@@ -84,6 +88,8 @@ class MainWindowConfigMixin:
             "font": self.font_size,
             "hybrid": self.hybrid,
             "recursive": self.recursive,
+            "ocr_enabled": self.ocr_enabled,
+            "ocr_mixed_pdf": self.ocr_mixed_pdf,
             "keep_search_text": self.keep_search_text,
             "sort_by": self.sort_combo.currentData() if hasattr(self, "sort_combo") else self.sort_by,
             "filters": self._gather_search_filters() if hasattr(self, "ext_filter_combo") else self.search_filters,
@@ -97,6 +103,41 @@ class MainWindowConfigMixin:
             "filename": self.filename_filter_input.text().strip() if hasattr(self, "filename_filter_input") else "",
             "path": self.path_filter_input.text().strip() if hasattr(self, "path_filter_input") else "",
         }
+
+    def _gather_ocr_options(self) -> dict[str, Any]:
+        self = _as_window(self)
+        return {
+            "enabled": bool(self.ocr_enabled),
+            "mixed_pdf": bool(self.ocr_enabled and self.ocr_mixed_pdf),
+        }
+
+    def _sync_ocr_controls(self) -> None:
+        self = _as_window(self)
+        enabled_check = getattr(self, "ocr_enabled_check", None)
+        mixed_check = getattr(self, "ocr_mixed_pdf_check", None)
+        if enabled_check is not None:
+            enabled_check.blockSignals(True)
+            enabled_check.setChecked(bool(self.ocr_enabled))
+            enabled_check.blockSignals(False)
+        if mixed_check is not None:
+            mixed_check.blockSignals(True)
+            mixed_check.setChecked(bool(self.ocr_enabled and self.ocr_mixed_pdf))
+            mixed_check.setEnabled(bool(self.ocr_enabled))
+            mixed_check.blockSignals(False)
+
+    def _on_ocr_enabled_changed(self) -> None:
+        self = _as_window(self)
+        self.ocr_enabled = self.ocr_enabled_check.isChecked()
+        if not self.ocr_enabled:
+            self.ocr_mixed_pdf = False
+        self._sync_ocr_controls()
+        self._save_config()
+
+    def _on_ocr_mixed_pdf_changed(self) -> None:
+        self = _as_window(self)
+        self.ocr_mixed_pdf = self.ocr_mixed_pdf_check.isChecked() if self.ocr_enabled else False
+        self._sync_ocr_controls()
+        self._save_config()
 
 
 class MainWindowInsightsMixin:
@@ -439,6 +480,8 @@ class MainWindowInsightsMixin:
             f"📌 data dir: {data_dir}",
             f"📌 models dir: {models_dir}",
             f"📌 cache root: {cache_root}",
+            f"📌 ocr enabled: {self.ocr_enabled}",
+            f"📌 ocr mixed pdf: {self.ocr_mixed_pdf}",
         ]
         if current_cache_dir:
             lines.append(f"📌 current cache: {current_cache_dir}")

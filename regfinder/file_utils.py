@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 import importlib
@@ -9,6 +9,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 from .app_types import DiscoveredFile
 from .runtime import logger
+
 
 class FileUtils:
     @staticmethod
@@ -32,7 +33,7 @@ class FileUtils:
         except Exception as e:
             logger.exception(f"파일 읽기 오류: {path}")
             return "", str(e)
-    
+
     @staticmethod
     def get_metadata(path: str) -> Optional[Dict]:
         try:
@@ -44,7 +45,7 @@ class FileUtils:
         except OSError as e:
             logger.debug(f"파일 메타데이터 조회 실패: {path} - {e}")
             return None
-    
+
     @staticmethod
     def open_file(path: str):
         try:
@@ -56,7 +57,7 @@ class FileUtils:
                 subprocess.run(['xdg-open', path], check=False)
         except Exception as e:
             logger.error(f"파일 열기 실패: {e}")
-    
+
     @staticmethod
     def format_size(size: int) -> str:
         size_value = float(size)
@@ -90,32 +91,46 @@ class FileUtils:
         *,
         recursive: bool,
         supported_extensions: Iterable[str],
+        skipped_paths: Optional[List[str]] = None,
     ) -> List[DiscoveredFile]:
         root = os.path.normpath(os.path.abspath(folder))
         extensions = {str(ext).lower() for ext in supported_extensions}
         discovered: List[DiscoveredFile] = []
+        skipped = skipped_paths if skipped_paths is not None else []
+
+        def _mark_skipped(path: str) -> None:
+            normalized = os.path.normpath(path)
+            if normalized not in skipped:
+                skipped.append(normalized)
 
         def _scan(directory: str) -> None:
-            with os.scandir(directory) as entries:
-                for entry in entries:
-                    try:
-                        if entry.is_dir(follow_symlinks=False):
-                            if recursive:
-                                _scan(entry.path)
-                            continue
-                        if not entry.is_file(follow_symlinks=False):
-                            continue
-                        extension = os.path.splitext(entry.name)[1].lower()
-                        if extension not in extensions:
-                            continue
-                        stat_result = entry.stat(follow_symlinks=False)
-                        discovered.append(
-                            FileUtils.build_discovered_file(root, entry.path, stat_result=stat_result)
-                        )
-                    except PermissionError:
-                        raise
-                    except OSError as exc:
-                        logger.debug(f"파일 탐색 중 항목 건너뜀: {entry.path} - {exc}")
+            try:
+                with os.scandir(directory) as entries:
+                    for entry in entries:
+                        try:
+                            if entry.is_dir(follow_symlinks=False):
+                                if recursive:
+                                    _scan(entry.path)
+                                continue
+                            if not entry.is_file(follow_symlinks=False):
+                                continue
+                            extension = os.path.splitext(entry.name)[1].lower()
+                            if extension not in extensions:
+                                continue
+                            stat_result = entry.stat(follow_symlinks=False)
+                            discovered.append(
+                                FileUtils.build_discovered_file(root, entry.path, stat_result=stat_result)
+                            )
+                        except PermissionError:
+                            logger.warning(f"접근 권한이 없어 제외된 하위 경로: {entry.path}")
+                            _mark_skipped(entry.path)
+                        except OSError as exc:
+                            logger.debug(f"파일 탐색 중 항목 건너뜀: {entry.path} - {exc}")
+            except PermissionError:
+                if os.path.normpath(directory) == root:
+                    raise
+                logger.warning(f"접근 권한이 없어 제외된 폴더: {directory}")
+                _mark_skipped(directory)
 
         _scan(root)
         discovered.sort(key=lambda item: item.rel_path.lower())

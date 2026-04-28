@@ -1,165 +1,23 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
 
-import re
-from typing import Iterable, List, Tuple
+import sys
 
+_module_name = __name__
+from .search import text as _impl
+from .search.text import (
+    bm25_terms,
+    highlight_spans,
+    highlight_terms,
+    matches_path_filter,
+    matches_text_filter,
+    normalize_compact_text,
+    normalize_path_text,
+    normalize_search_text,
+    repeated_title_text,
+    semantic_terms,
+    unique_terms,
+)
 
-_KOREAN_PARTICLES = {
-    "은",
-    "는",
-    "이",
-    "가",
-    "을",
-    "를",
-    "의",
-    "에",
-    "로",
-    "와",
-    "과",
-    "도",
-    "만",
-}
-
-
-def normalize_path_text(value: str) -> str:
-    text = str(value or "").strip().lower().replace("\\", "/")
-    text = re.sub(r"/{2,}", "/", text)
-    return text
-
-
-def normalize_search_text(value: str) -> str:
-    text = re.sub(r"[^\w\s가-힣]", " ", str(value or "").lower())
-    return " ".join(text.split())
-
-
-def normalize_compact_text(value: str) -> str:
-    return normalize_search_text(value).replace(" ", "")
-
-
-def _strip_particle(token: str) -> str:
-    for particle in _KOREAN_PARTICLES:
-        if token.endswith(particle) and len(token) > len(particle) + 1:
-            return token[: -len(particle)]
-    return token
-
-
-def semantic_terms(value: str) -> List[str]:
-    terms: List[str] = []
-    seen: set[str] = set()
-    for raw in normalize_search_text(value).split():
-        token = _strip_particle(raw)
-        if len(token) < 2 or token in seen:
-            continue
-        seen.add(token)
-        terms.append(token)
-    return terms
-
-
-def bm25_terms(value: str) -> List[str]:
-    terms = list(semantic_terms(value))
-    seen = set(terms)
-    expanded: List[str] = list(terms)
-    for token in terms:
-        if len(token) < 4 or not re.fullmatch(r"[가-힣]+", token):
-            continue
-        for n in (2, 3):
-            if len(token) < n:
-                continue
-            for idx in range(len(token) - n + 1):
-                gram = token[idx: idx + n]
-                if gram in seen:
-                    continue
-                seen.add(gram)
-                expanded.append(gram)
-    return expanded
-
-
-def highlight_terms(value: str) -> List[str]:
-    return sorted(semantic_terms(value), key=len, reverse=True)
-
-
-def _compact_text_with_positions(value: str) -> Tuple[str, List[int]]:
-    compact_chars: List[str] = []
-    positions: List[int] = []
-    for idx, ch in enumerate(str(value or "")):
-        lowered = ch.lower()
-        if re.fullmatch(r"[\w가-힣]", lowered):
-            compact_chars.append(lowered)
-            positions.append(idx)
-    return "".join(compact_chars), positions
-
-
-def highlight_spans(content: str, query: str) -> List[Tuple[int, int]]:
-    if not content or not query:
-        return []
-
-    compact_content, positions = _compact_text_with_positions(content)
-    if not compact_content:
-        return []
-
-    spans: List[Tuple[int, int]] = []
-    for term in unique_terms(highlight_terms(query)):
-        compact_term = normalize_compact_text(term)
-        if len(compact_term) < 2:
-            continue
-        start = 0
-        while True:
-            pos = compact_content.find(compact_term, start)
-            if pos < 0:
-                break
-            raw_start = positions[pos]
-            raw_end = positions[pos + len(compact_term) - 1] + 1
-            spans.append((raw_start, raw_end))
-            start = pos + len(compact_term)
-
-    if not spans:
-        return []
-
-    merged: List[Tuple[int, int]] = []
-    for start, end in sorted(spans):
-        if not merged:
-            merged.append((start, end))
-            continue
-        prev_start, prev_end = merged[-1]
-        if start <= prev_end + 1:
-            merged[-1] = (prev_start, max(prev_end, end))
-            continue
-        merged.append((start, end))
-    return merged
-
-
-def matches_text_filter(value: str, query: str) -> bool:
-    terms = semantic_terms(query)
-    if not terms:
-        return True
-    normalized = normalize_search_text(value)
-    compact = normalized.replace(" ", "")
-    return all(term in normalized or term in compact for term in terms)
-
-
-def matches_path_filter(value: str, query: str) -> bool:
-    normalized_value = normalize_path_text(value)
-    normalized_query = normalize_path_text(query)
-    if not normalized_query:
-        return True
-    return normalized_query in normalized_value
-
-
-def repeated_title_text(source: str, content: str, *, repeats: int = 2) -> str:
-    prefix = " ".join(str(source or "") for _ in range(max(0, repeats))).strip()
-    if prefix:
-        return f"{prefix} {content}".strip()
-    return str(content or "").strip()
-
-
-def unique_terms(values: Iterable[str]) -> List[str]:
-    ordered: List[str] = []
-    seen: set[str] = set()
-    for value in values:
-        token = str(value or "")
-        if not token or token in seen:
-            continue
-        seen.add(token)
-        ordered.append(token)
-    return ordered
+globals().update(_impl.__dict__)
+sys.modules[_module_name] = _impl
+setattr(sys.modules["regfinder"], "search_text", _impl)

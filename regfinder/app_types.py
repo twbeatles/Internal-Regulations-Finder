@@ -1,139 +1,24 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from enum import Enum, auto
-from typing import Any, Dict, List, Optional, TypeAlias, TypedDict
+import sys
 
-class AppConfig:
-    APP_NAME = "사내 규정 검색기"
-    APP_VERSION = "9.3"
-    
-    AVAILABLE_MODELS: Dict[str, str] = {
-        "SNU SBERT (고성능)": "snunlp/KR-SBERT-V40K-klueNLI-augSTS",
-        "BM-K Simal (균형)": "BM-K/ko-simal-roberta-base",
-        "JHGan SBERT (빠름)": "jhgan/ko-sbert-nli"
-    }
-    DEFAULT_MODEL = "JHGan SBERT (빠름)"
-    
-    CONFIG_FILE = "config.json"
-    HISTORY_FILE = "search_history.json"
-    BOOKMARKS_FILE = "bookmarks.json"
-    RECENTS_FILE = "recent_folders.json"
-    SEARCH_LOG_FILE = "search_log.json"
-    CONFIG_SCHEMA_VERSION = 3
-    SUPPORTED_EXTENSIONS = ('.txt', '.docx', '.pdf', '.hwp')
-    
-    MAX_FONT_SIZE = 32
-    MIN_FONT_SIZE = 8
-    DEFAULT_FONT_SIZE = 14
-    DEFAULT_SEARCH_RESULTS = 3
-    MAX_SEARCH_RESULTS = 10
-    MAX_HISTORY_SIZE = 30
-    MAX_RECENT_FOLDERS = 10
-    MAX_BOOKMARKS = 500
-    MAX_SEARCH_LOGS = 1000
-    
-    CHUNK_SIZE = 800
-    CHUNK_OVERLAP = 80
-    VECTOR_WEIGHT = 0.7
-    BM25_WEIGHT = 0.3
-    MAX_DOCS_IN_MEMORY = 5000
-    BATCH_SIZE = 100
-    MAX_VECTOR_FETCH = 100
+_module_name = __name__
+from .core import types as _impl
+from .core.types import (
+    AppConfig,
+    DiscoveredFile,
+    EmbeddingRuntimeState,
+    FileInfo,
+    FileStatus,
+    ModelDownloadState,
+    ModelDownloadStateMap,
+    SearchHistoryEntry,
+    SearchStats,
+    TaskResult,
+    TaskStatus,
+    TextCacheSnapshot,
+)
 
-
-class TaskStatus(Enum):
-    IDLE = auto()
-    LOADING_MODEL = auto()
-    PROCESSING_DOCS = auto()
-    SEARCHING = auto()
-
-
-class FileStatus(Enum):
-    PENDING = "대기"
-    PROCESSING = "처리중"
-    SUCCESS = "완료"
-    FAILED = "실패"
-    CACHED = "캐시"
-
-
-class ModelDownloadState(TypedDict):
-    model_id: str
-    downloaded: bool
-    size_bytes: int
-    cache_path: str
-
-
-ModelDownloadStateMap: TypeAlias = Dict[str, ModelDownloadState]
-
-
-class SearchHistoryEntry(TypedDict):
-    q: str
-    filters: Dict[str, str]
-    sort_by: str
-    k: int
-    hybrid: bool
-
-
-@dataclass(frozen=True)
-class DiscoveredFile:
-    path: str
-    rel_path: str
-    name: str
-    extension: str
-    size: int
-    mtime: float
-    file_key: str
-
-
-@dataclass
-class EmbeddingRuntimeState:
-    checked: bool = False
-    available: bool = False
-    error: str = ""
-
-
-@dataclass
-class SearchStats:
-    elapsed_ms: int = 0
-    vector_fetch_k: int = 0
-    bm25_candidates: int = 0
-    filtered_out: int = 0
-    result_count: int = 0
-    query_len: int = 0
-    search_mode: str = ""
-    vector_ready: bool = False
-    filters: Dict[str, str] = field(default_factory=dict)
-
-
-@dataclass
-class TaskResult:
-    success: bool
-    message: str
-    data: Any = None
-    failed_items: List[str] = field(default_factory=list)
-    op_id: str = ""
-    error_code: str = ""
-    debug: str = ""
-
-
-@dataclass
-class FileInfo:
-    path: str
-    name: str
-    extension: str
-    size: int
-    status: FileStatus = FileStatus.PENDING
-    chunks: int = 0
-    error: str = ""
-
-
-@dataclass
-class TextCacheSnapshot:
-    schema_version: int
-    revision: int
-    cached_files: int
-    cached_chunks: int
-    sqlite_path: str
-    updated_at: Optional[str] = None
+globals().update(_impl.__dict__)
+sys.modules[_module_name] = _impl
+setattr(sys.modules["regfinder"], "app_types", _impl)

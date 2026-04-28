@@ -36,4 +36,10 @@ def test_is_model_downloaded_requires_blobs_and_snapshots(tmp_path):
     blob_file = model_cache_path / "blobs" / "deadbeef"
     blob_file.write_bytes(b"ok")
 
+    assert runtime.is_model_downloaded(model_id, models_dir=str(tmp_path)) is False
+
+    snapshot_dir = model_cache_path / "snapshots" / "123abc"
+    (snapshot_dir / "config.json").write_text("{}", encoding="utf-8")
+    (snapshot_dir / "model.safetensors").write_bytes(b"weights")
+
     assert runtime.is_model_downloaded(model_id, models_dir=str(tmp_path)) is True

@@ -12,19 +12,21 @@
 참고:
     실제 출력 파일명은 아래 EXE(...)의 name 값으로 결정됩니다.
     앱 설정 탭의 `🧰 진단 내보내기`는 빌드와 무관하지만, 배포 환경에서 문제 재현/분석을 위한 로그/설정/환경 요약 zip을 생성합니다.
+    원문 텍스트 캐시는 기본적으로 진단 ZIP에서 제외되며, 사용자가 명시적으로 체크한 경우에만 포함됩니다.
     모델 다운로드는 스크립트 실행 시 subprocess 경로를 사용하며,
     frozen(onefile) 실행에서는 in-process 경로로 폴백됩니다.
     따라서 onefile EXE의 다운로드 취소는 현재 모델 완료 후 중단될 수 있습니다.
     암호화 PDF 비밀번호는 GUI에서 폴더 로드 전 사전 입력되며 세션 메모리에만 유지됩니다.
-    이미지 PDF용 OCR 엔진은 기본 번들에 포함하지 않습니다.
+    이미지 PDF용 OCR은 선택형 Tesseract 경로입니다.
+    `pytesseract` + `PyMuPDF(fitz)` Python 패키지와 외부 Tesseract 실행 파일/언어 데이터가 있을 때 동작합니다.
     `sentence_transformers` import 경로는 `transformers -> PIL.Image` 와
     `sentence_transformers -> sklearn.metrics` 체인을 타므로,
     경량화 시 `Pillow` / `scikit-learn` 제외 여부를 주의해야 합니다.
     `FileUtils.safe_read()` 는 `charset_normalizer` 를 동적 import 하므로,
     lazy fallback 경로가 EXE에서도 유지되도록 hiddenimports에 포함합니다.
-    2026-04-16 기준 구현 리스크 후속 반영(OCR UI 옵션, mixed PDF OCR 보강,
-    model-less BM25 초기 인덱싱, permission-denied subtree skip, folder-load 상태 복구)은
-    모두 기존 런타임 모듈 내부 로직 변경이며, 추가 hiddenimports/datas 증설은 필요하지 않았습니다.
+    2026-04-28 기준 구현 리스크 후속 반영(HWPX, PDF page metadata, 진단 privacy mode,
+    optional Tesseract OCR, BM25-only vector 승격, filtered vector fetch 상한)은
+    런타임 모듈 내부 로직과 선택형 OCR hiddenimports에 반영되어 있습니다.
     설정창 모델 다운로드 상태 표시는 `models--<org>--<name>/blobs,snapshots`
     Hugging Face 캐시 구조를 기준으로 판별합니다.
     `pyrightconfig.json`, `.editorconfig`, `.gitattributes`, `.vscode/settings.json`
@@ -49,6 +51,7 @@ pillow_metadata = copy_metadata('pillow')
 hiddenimports = [
     # Internal package entrypoints
     'regfinder',
+    # Compatibility modules kept for existing public imports
     'regfinder.app_main',
     'regfinder.main_window',
     'regfinder.main_window_mixins',
@@ -68,6 +71,32 @@ hiddenimports = [
     'regfinder.persistence',
     'regfinder.runtime',
     'regfinder.app_types',
+    # Feature package implementations
+    'regfinder.core',
+    'regfinder.core.types',
+    'regfinder.core.runtime',
+    'regfinder.core.file_utils',
+    'regfinder.storage',
+    'regfinder.storage.persistence',
+    'regfinder.storage.text_cache',
+    'regfinder.storage.model_inventory',
+    'regfinder.documents',
+    'regfinder.documents.extractor',
+    'regfinder.search',
+    'regfinder.search.text',
+    'regfinder.search.bm25',
+    'regfinder.search.diagnostics',
+    'regfinder.search.qa_system',
+    'regfinder.application',
+    'regfinder.application.workers',
+    'regfinder.application.worker_registry',
+    'regfinder.application.app_main',
+    'regfinder.ui',
+    'regfinder.ui.style',
+    'regfinder.ui.components',
+    'regfinder.ui.window_builder',
+    'regfinder.ui.window_mixins',
+    'regfinder.ui.main_window',
 
     # PyQt6 runtime
     'PyQt6',
@@ -97,6 +126,8 @@ hiddenimports = [
     'docx',
     'pypdf',
     'olefile',
+    'pytesseract',
+    'fitz',
 ] + sentence_transformers_hiddenimports + charset_normalizer_hiddenimports
 
 excludes = [
@@ -128,8 +159,6 @@ excludes = [
 
     # Optional PDF / browser stacks not used by current extractor
     'pdfminer',
-    'pymupdf',
-    'fitz',
     'pypdfium2',
     'pypdfium2_raw',
 

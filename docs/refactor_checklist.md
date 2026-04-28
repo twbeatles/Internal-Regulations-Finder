@@ -60,23 +60,32 @@ python -m pytest -q
 - [ ] 접근 권한이 없는 하위 폴더가 있어도 전체 스캔이 중단되지 않고 제외 안내가 표시되는지 확인
 - [ ] 문서 처리 진행/취소 동작
 - [ ] 문서 처리 취소 시 이전 인덱스 상태가 복구되는지 확인
+- [ ] 벡터 인덱싱 중 취소가 일반 실패가 아니라 `DOCS_CANCELED`로 반환되는지 확인
 - [ ] 처리 후 파일 통계/캐시 크기 갱신
 - [ ] 동일 폴더에서 모델만 변경 시 텍스트 재추출 없이 벡터 캐시만 재생성되는지 확인
-- [ ] text cache(`text_cache.sqlite`) / vector cache(`vector_meta.json`)가 schema v3 기준으로 생성되는지 확인
+- [ ] BM25-only 인덱스에서 모델 로드 후 벡터 캐시 생성 및 하이브리드 모드 승격이 시도되는지 확인
+- [ ] text cache(`text_cache.sqlite`) / vector cache(`vector_meta.json`)가 schema v4 기준으로 생성되는지 확인
 - [ ] text cache file metadata에 fingerprint가 저장되고 same-size modified file도 stale cache 없이 판별되는지 확인
+- [ ] text cache chunk metadata에 PDF `page_start`, `page_end`가 저장/복원되는지 확인
 - [ ] 벡터 인덱스 실패 시에도 `bm25_only` 검색 모드로 폴백하는지 확인
 - [ ] 수정 파일 재추출 실패 시 이전 본문이 검색되지 않고 해당 파일이 현재 인덱스에서 제외되는지 확인
 - [ ] 청크 수가 임계값을 넘으면 `memory_warning` 경고가 표시되는지 확인
 - [ ] 캐시 삭제 후 파일 목록/결과/진단/PDF 비밀번호 세션이 함께 초기화되는지 확인
-- [ ] OCR 설정(`PDF OCR 보강 사용`, `혼합 PDF의 빈 페이지도 OCR 보강`)이 저장/복원되고 mixed PDF에 반영되는지 확인
+- [ ] HWPX ZIP/XML 본문 추출이 동작하는지 확인
+- [ ] PDF page metadata가 결과 카드/상세 보기/TXT·CSV 내보내기에 표시되는지 확인
+- [ ] OCR 설정(`PDF OCR 보강 사용`, `혼합 PDF의 빈 페이지도 OCR 보강`, Tesseract 경로/언어)이 저장/복원되고 mixed/image PDF에 반영되는지 확인
+- [ ] Tesseract 의존성 또는 외부 실행 파일이 없을 때 OCR만 건너뛰고 앱은 계속 동작하는지 확인
+- [ ] 대용량 폴더 로드 전 파일 수/총 크기/단일 파일 크기 경고가 표시되고 사용자가 계속 진행할 수 있는지 확인
 
 ## 5. Diagnostics and errors
 
 - [ ] 진단 탭 인덱스 상태 표시
 - [ ] 검색 로그 요약 표시
-- [ ] 마지막 검색 통계(`vector_fetch_k`, `bm25_candidates`, `filtered_out`) 표시
-- [ ] 진단에 `search_mode`, `vector_ready`, `memory_warning`가 노출되는지 확인
-- [ ] 진단 zip 내보내기 동작
+- [ ] 마지막 검색 통계(`vector_fetch_k`, `bm25_candidates`, `filtered_out`, `vector_limit_reached`) 표시
+- [ ] 진단에 `search_mode`, `vector_ready`, `memory_warning`, 텍스트 캐시 경로/파일 수/청크 수가 노출되는지 확인
+- [ ] 모델 없는 BM25-only 상태에서도 진단/index status에 텍스트 캐시 정보가 표시되는지 확인
+- [ ] 진단 zip 내보내기 기본값이 `text_cache.sqlite`를 제외하는지 확인
+- [ ] 진단 zip 내보내기에서 “원문 캐시 포함”을 체크했을 때만 `text_cache.sqlite`가 포함되는지 확인
 - [ ] 오류 코드별 가이드 메시지 표시
 - [ ] 오류 대화상자에 `op_id`가 함께 표시되는지 확인
 - [ ] 오프라인 모델 다운로드 실패 시 실제 import 실패 패키지명(`Pillow`/`scikit-learn`/`sentence_transformers`)이 노출되는지 확인
@@ -90,11 +99,22 @@ python -m pytest -q
 - [ ] 설정창 모델 목록에서 다운로드 완료 모델이 상단 우선 표시되는지 확인
 - [ ] `다운로드 모델 우선 선택` 버튼이 다운로드 상태에 맞게 활성/비활성되는지 확인
 - [ ] `model_inventory.json` 갱신 후 모델 상태/용량 표시가 반복 전체 스캔 없이 유지되는지 확인
-- [ ] spec hiddenimports에 `regfinder.search_text`가 포함되어 있는지 확인
+- [ ] 선택 모델 snapshot이 불완전하면 앱 시작 시 자동 모델 로드를 건너뛰고 BM25 폴더 로드를 허용하는지 확인
+- [ ] 모델 다운로드 완료 판정이 snapshot metadata와 가중치 파일 존재를 함께 확인하는지 확인
+- [ ] spec hiddenimports에 compatibility modules(`regfinder.search_text` 등)와 feature package modules(`regfinder.search.text` 등)가 함께 포함되어 있는지 확인
 
 ## 6. Shutdown
 
 - [ ] 종료 시 설정 저장
 - [ ] 실행 중 워커 취소 처리
+- [ ] ProgressDialog 창 닫기 버튼이 취소 요청으로 처리되는지 확인
 - [ ] 종료 시 cancel 후 worker 종료를 기다린 뒤 registry와 runtime 상태를 정리하는지 확인
+- [ ] worker가 제한 시간 안에 멈추지 않으면 창 닫기를 보류하고 취소 진행 상태를 표시하는지 확인
 - [ ] `qa.cleanup()` 호출
+
+## 7. Package Boundary / Compatibility
+
+- [ ] 실제 구현은 `core`, `storage`, `documents`, `search`, `ui`, `application` 하위 패키지에 위치하는지 확인
+- [ ] `regfinder/*.py` compatibility wrapper가 기존 import 경로와 monkeypatch 경로를 유지하는지 확인
+- [ ] 새 하위 패키지가 `tools/smoke_refactor.py` import 대상과 PyInstaller spec hiddenimports에 포함되어 있는지 확인
+- [ ] README/claude/gemini/docs 문서가 새 패키지 구조와 schema v4를 기준으로 설명하는지 확인

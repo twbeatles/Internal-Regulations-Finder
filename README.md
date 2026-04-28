@@ -12,7 +12,7 @@
   - 벡터 인덱스가 준비되면 `하이브리드` 또는 `벡터` 모드로 검색
   - 벡터 인덱스 생성/로드에 실패해도 GUI에서 `키워드(BM25)` 모드로 계속 검색 가능
 - 한국어 규정명 친화 검색
-  - 공용 검색 정규화(`regfinder/search_text.py`)로 BM25, 필터, 하이라이트 규칙 통일
+  - 공용 검색 정규화(`regfinder/search/text.py`)로 BM25, 필터, 하이라이트 규칙 통일
   - 무공백 질의(`휴가규정`, `인사규정`)와 조사 포함 질의(`휴가를`) 대응
   - 경로 필터는 `/`, `\` 입력을 동일하게 처리
 - 파일 단위 결과 그룹화
@@ -33,14 +33,19 @@
   - 텍스트 캐시 파일 메타에 fingerprint를 함께 저장해 same-size modified file도 stale cache 없이 판별
   - 수정 파일 재색인 실패 시 기존 텍스트/청크를 현재 인덱스에서 제거해 stale 결과 방지
   - 폴더 로드 취소/실패 시 이전 인덱스 상태를 복구해 UI/런타임 불일치 방지
-  - 필터 검색 시 적중 파일을 찾을 때까지 벡터 후보를 확장 fetch하여 거짓 음성 감소
+  - 필터 검색 시 최대 1000개까지 벡터 후보를 확장 fetch하고 한도 도달 여부를 진단에 기록
+  - BM25 검색도 충분한 파일 단위 결과가 채워질 때까지 후보 청크를 확장해 특정 파일 독점 완화
   - 캐시 삭제 시 파일 목록/결과/진단 뷰와 세션 PDF 비밀번호를 함께 초기화
 - 문서 처리 / 배포
   - 폴더 로드 전 암호화 PDF 사전 검사 + 파일별 비밀번호 입력(세션 메모리 재사용, 디스크 저장 안 함)
   - 접근 권한이 없는 하위 폴더/경로는 전체 스캔을 중단하지 않고 제외 후 계속 진행
-  - OCR 인터페이스 확장 포인트 제공(기본 엔진 미포함)
-  - 설정에서 `PDF OCR 보강 사용`, `혼합 PDF의 빈 페이지도 OCR 보강` 옵션 제공
+  - TXT/DOCX/PDF/HWP/HWPX 본문 추출 지원
+  - PDF는 페이지 단위 metadata를 보존해 결과 카드/상세 보기/내보내기에 페이지 범위를 표시
+  - 선택형 Tesseract OCR 엔진 제공(`pytesseract` + `PyMuPDF` + 외부 Tesseract 실행 파일 필요)
+  - 설정에서 `PDF OCR 보강 사용`, `혼합 PDF의 빈 페이지도 OCR 보강`, Tesseract 경로/언어 옵션 제공
+  - 진단 ZIP은 기본적으로 원문 텍스트 캐시를 제외하고, 사용자가 체크한 경우에만 포함
   - 오프라인 모델 선택 다운로드(일반 Python 실행은 즉시 취소, onefile EXE는 현재 모델 완료 후 중단 가능)
+  - 선택 모델이 다운로드되지 않은 앱 시작 상태에서는 자동 모델 로드를 건너뛰고 BM25 폴더 로드를 바로 허용
   - EXE(onefile) 환경 오프라인 모델 다운로드 경로 지원
 
 ---
@@ -52,6 +57,14 @@
 ```bash
 pip install PyQt6 torch sentence-transformers scikit-learn pillow langchain-huggingface langchain-community langchain-text-splitters langchain-core faiss-cpu python-docx pypdf olefile charset-normalizer
 ```
+
+선택형 PDF OCR을 사용하려면 Python 패키지와 별도 Tesseract 실행 파일/언어 데이터를 설치합니다.
+
+```bash
+pip install pytesseract PyMuPDF
+```
+
+기본 OCR 언어 설정은 `kor+eng`입니다. Tesseract 실행 파일이 PATH에 없으면 앱 설정에서 실행 파일 경로를 지정할 수 있습니다.
 
 ### 2) 앱 실행
 
@@ -79,27 +92,28 @@ python "사내 규정검색기 v9 PyQt6.py"
 
 ## 🧱 코드 구조
 
-| 모듈 | 책임 |
+| 패키지/모듈 | 책임 |
 |---|---|
-| `regfinder/app_types.py` | 설정/Enum/데이터 클래스 |
-| `regfinder/runtime.py` | 로깅, 경로 정책, op_id |
-| `regfinder/persistence.py` | 설정 스키마(v3), 북마크/최근폴더/검색로그 저장 |
-| `regfinder/model_inventory.py` | 다운로드 모델 상태/용량 캐시 |
-| `regfinder/worker_registry.py` | 작업 종류별 워커 레지스트리 |
-| `regfinder/file_utils.py` | 파일 읽기/발견(scandir)/메타/열기/크기 포맷 |
-| `regfinder/document_extractor.py` | TXT/DOCX/PDF/HWP 추출(+PDF 비밀번호/OCR 훅) |
-| `regfinder/text_cache.py` | 텍스트 캐시(SQLite, file fingerprint) |
-| `regfinder/search_text.py` | 공용 검색 정규화/토큰화/필터 매칭 helper |
-| `regfinder/bm25.py` | BM25Index 검색 |
-| `regfinder/qa_system.py` | 인덱싱/검색/텍스트 캐시+벡터 캐시 핵심 |
-| `regfinder/qa_system_mixins.py` | 진단/상태 조회 API |
-| `regfinder/workers.py` | QThread 워커 |
-| `regfinder/ui_components.py` | ResultCard/ProgressDialog 등 |
-| `regfinder/ui_style.py` | QSS 스타일 |
-| `regfinder/main_window.py` | 메인 이벤트 오케스트레이션 |
-| `regfinder/main_window_ui_mixin.py` | UI 빌더 메서드 |
-| `regfinder/main_window_mixins.py` | 설정/진단/북마크 보조 로직 |
-| `regfinder/app_main.py` | 앱 엔트리 |
+| `regfinder/core/types.py` | 설정/Enum/데이터 클래스 |
+| `regfinder/core/runtime.py` | 로깅, 경로 정책, op_id, 런타임 의존성 검증 |
+| `regfinder/core/file_utils.py` | 파일 읽기/발견(scandir)/메타/열기/크기 포맷 |
+| `regfinder/storage/persistence.py` | 설정 스키마(v4), 북마크/최근폴더/검색로그 저장 |
+| `regfinder/storage/text_cache.py` | 텍스트 캐시(SQLite, file fingerprint, page metadata) |
+| `regfinder/storage/model_inventory.py` | 다운로드 모델 상태/용량 캐시 |
+| `regfinder/documents/extractor.py` | TXT/DOCX/PDF/HWP/HWPX 추출(+PDF page metadata/선택형 Tesseract OCR) |
+| `regfinder/search/text.py` | 공용 검색 정규화/토큰화/필터 매칭 helper |
+| `regfinder/search/bm25.py` | BM25Index 검색 |
+| `regfinder/search/qa_system.py` | 인덱싱/검색/텍스트 캐시+벡터 캐시 핵심 |
+| `regfinder/search/diagnostics.py` | 진단/상태 조회 API |
+| `regfinder/application/workers.py` | QThread 워커 |
+| `regfinder/application/worker_registry.py` | 작업 종류별 워커 레지스트리 |
+| `regfinder/application/app_main.py` | 앱 엔트리 |
+| `regfinder/ui/components.py` | ResultCard/ProgressDialog 등 재사용 위젯 |
+| `regfinder/ui/style.py` | QSS 스타일 |
+| `regfinder/ui/main_window.py` | 메인 이벤트 오케스트레이션 |
+| `regfinder/ui/window_builder.py` | UI 빌더 메서드 |
+| `regfinder/ui/window_mixins.py` | 설정/진단/북마크 보조 로직 |
+| `regfinder/*.py` 호환 래퍼 | 기존 import 경로 유지용 얇은 alias 모듈 |
 
 ---
 
@@ -115,20 +129,31 @@ python -m pytest -q
 ```
 
 - 기준선: `python -m pyright .` 0 errors
-- 2026-04-16 확인: `python -m py_compile "사내 규정검색기 v9 PyQt6.spec"` 통과
-- 2026-04-16 확인: `python -m pytest -q` 통과
+- 2026-04-28 확인: `python -m py_compile "사내 규정검색기 v9 PyQt6.spec"` 통과
+- 2026-04-28 확인: `python -m pytest -q` 통과
 - 추적 텍스트 파일은 `UTF-8(no BOM)` 기준 유지
 - Windows PowerShell/Python 출력에서 한글이 깨져 보여도 실제 UTF-8 파일 손상과는 별개일 수 있음
 - 최근 회귀 포인트
-  - 공용 검색 정규화(`search_text.py`)
+  - 공용 검색 정규화(`search/text.py`)
   - 무공백 한국어 질의 / 조사 제거
   - 파일 단위 결과 집계(`match_count`, `snippet_chunk_idx`)
-  - BM25-only fallback, `search_mode`, `vector_ready`, `memory_warning`
+  - BM25-only fallback, `search_mode`, `vector_ready`, `memory_warning`, `vector_limit_reached`
   - 모델 미로드 상태에서의 BM25-only 초기 인덱싱
+  - 선택 모델 미다운로드 상태의 자동 모델 로드 skip
   - 폴더 로드 취소 시 이전 인덱스 상태 복구
+  - 벡터 인덱싱 취소 시 `DOCS_CANCELED` 반환
+  - BM25-only 인덱스에서 모델 로드 후 벡터 캐시 승격
+  - 모델 없는 BM25-only 상태의 텍스트 캐시 진단/index status
+  - 필터 벡터 검색 fetch 상한과 한도 도달 진단
+  - BM25 파일 단위 후보 확장
+  - HWPX ZIP/XML 본문 추출
+  - PDF page metadata 결과/상세/내보내기 전달
+  - 선택형 Tesseract OCR fallback 안내
   - 권한 없는 하위 폴더 skip + 사용자 공지
   - OCR 설정 저장/혼합 PDF OCR 보강
-  - `keep_search_text` 설정 마이그레이션
+  - `keep_search_text` 및 OCR 설정을 포함한 config schema v4 마이그레이션
+  - ProgressDialog 창 닫기 취소 처리와 종료 시 워커 취소 대기
+  - 진단 ZIP privacy mode(원문 텍스트 캐시 기본 제외)
   - 랭킹 점수 UI/북마크/내보내기 wording
 
 ---
@@ -147,8 +172,9 @@ pyinstaller "사내 규정검색기 v9 PyQt6.spec"
 - onefile EXE는 `sys.executable -c` 서브프로세스 대신 in-process 다운로드 경로를 사용
 - `transformers`가 `PIL.Image`를 모듈 초기화 시 참조하므로, 경량화 시 `Pillow` 제외 금지
 - `charset_normalizer`는 `FileUtils.safe_read()` fallback 경로에서 동적 import되므로 hidden import 유지 필요
-- `regfinder.search_text`는 검색 정규화 helper로서 spec hidden import 목록에도 반영
-- 모델 다운로드 완료 여부는 `models/models--<org>--<name>/{blobs,snapshots}` 캐시 구조 기준으로 판별
+- `regfinder.search.text`는 검색 정규화 helper로서 spec hidden import 목록에도 반영
+- 선택형 Tesseract OCR은 `pytesseract`, `PyMuPDF(fitz)`, 외부 Tesseract 실행 파일이 모두 있을 때만 동작
+- 모델 다운로드 완료 여부는 snapshot metadata(`config.json`/`modules.json` 계열)와 가중치 파일(`.bin`/`.safetensors`/`.onnx`)을 함께 확인
 - 현재 onefile 크기는 `torch` / `faiss` / `PyQt6` 포함으로 인해 약 300MB 수준
 
 ---
@@ -157,7 +183,7 @@ pyinstaller "사내 규정검색기 v9 PyQt6.spec"
 
 - 포터블 경로 우선, 불가 시 `LOCALAPPDATA/APPDATA` 폴백
 - 저장 항목:
-  - `config.json` (schema_version=3)
+  - `config.json` (schema_version=4)
   - `search_history.json`
   - `bookmarks.json`
   - `recent_folders.json`
@@ -167,12 +193,14 @@ pyinstaller "사내 규정검색기 v9 PyQt6.spec"
 - 텍스트/벡터 캐시는 사용자 설정 경로가 아니라 시스템 임시 경로 하위의 `reg_qa_v93/` 아래에 저장
   - `text/<folder_hash>/text_cache.sqlite`
   - `vector/<folder_hash>/<model_hash>/`
+- 텍스트 캐시는 chunk별 `page_start`, `page_end`를 저장할 수 있으며, 진단 ZIP에는 기본 포함되지 않음
 
 ---
 
 ## 🧪 알려진 제한
 
-- 이미지 PDF는 기본 OCR 엔진이 미포함이라 별도 엔진 연결 전에는 텍스트 추출 불가
+- 이미지 PDF OCR은 선택형 기능이며 `pytesseract`, `PyMuPDF`, 외부 Tesseract 실행 파일과 언어 데이터가 없으면 OCR 없이 계속 동작
+- OCR 보강 텍스트는 PDF 자체 텍스트 page metadata와 달리 정확한 페이지 범위를 항상 보장하지 않음
 - 암호화 PDF는 올바른 비밀번호가 없으면 해당 파일만 이번 인덱스에서 제외
 - HWP는 문서 형식 손상/변형에 따라 추출 실패 가능
 - 오프라인 모델 다운로드는 최초 1회 인터넷 연결이 필요

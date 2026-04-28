@@ -1,46 +1,11 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from typing import Protocol
+import sys
 
+_module_name = __name__
+from .application import worker_registry as _impl
+from .application.worker_registry import WorkerLike, WorkerRegistry
 
-class WorkerLike(Protocol):
-    def isRunning(self) -> bool: ...
-    def cancel(self) -> None: ...
-
-
-class WorkerRegistry:
-    """작업 종류별 워커 레퍼런스 관리."""
-
-    def __init__(self) -> None:
-        self._workers: dict[str, WorkerLike] = {}
-
-    def set(self, key: str, worker: WorkerLike) -> None:
-        self._workers[key] = worker
-
-    def get(self, key: str) -> WorkerLike | None:
-        return self._workers.get(key)
-
-    def clear(self, key: str) -> None:
-        if key in self._workers:
-            self._workers.pop(key, None)
-
-    def is_running(self, key: str) -> bool:
-        worker = self.get(key)
-        try:
-            return bool(worker and worker.isRunning())
-        except Exception:
-            return False
-
-    def cancel(self, key: str) -> None:
-        worker = self.get(key)
-        if not worker:
-            return
-        worker.cancel()
-
-    def cancel_all(self) -> None:
-        for key in list(self._workers.keys()):
-            self.cancel(key)
-
-    def items(self) -> list[tuple[str, WorkerLike]]:
-        return list(self._workers.items())
+globals().update(_impl.__dict__)
+sys.modules[_module_name] = _impl
+setattr(sys.modules["regfinder"], "worker_registry", _impl)

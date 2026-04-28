@@ -10,10 +10,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication, QDialog, QLabel, QMessageBox, QPushButton
 
-from regfinder.app_types import FileInfo, FileStatus, TaskResult
+from regfinder.app_types import AppConfig, FileInfo, FileStatus, TaskResult
 from regfinder.file_utils import FileUtils
 from regfinder.main_window import MainWindow
 from regfinder.qa_system import RegulationQASystem
+from regfinder.ui_components import ProgressDialog
 
 _APP: QApplication | None = None
 
@@ -271,10 +272,10 @@ def test_results_and_bookmarks_export_use_csv_writer(monkeypatch, tmp_path):
         bookmark_rows = list(csv.reader(f))
 
     assert rows[1][2] == '규정,"휴가".pdf'
-    assert rows[1][4] == '줄1 줄2, "quoted"'
+    assert rows[1][5] == '줄1 줄2, "quoted"'
     assert bookmark_rows[1][1] == '쉼표,"검색"'
     assert bookmark_rows[1][2] == '규정,"휴가".pdf'
-    assert bookmark_rows[1][4] == '줄1 줄2, "quoted"'
+    assert bookmark_rows[1][5] == '줄1 줄2, "quoted"'
     window.close()
 
 
@@ -315,6 +316,56 @@ def test_clear_cache_resets_ui_and_session_passwords(monkeypatch, tmp_path):
         isinstance(label, QLabel) and label.text() == "사내 규정 검색기"
         for label in window.result_container.findChildren(QLabel)
     )
+    window.close()
+
+
+def test_export_filename_sanitizes_windows_reserved_characters(monkeypatch, tmp_path):
+    window = _make_window(monkeypatch, tmp_path)
+
+    name = window._sanitize_export_name('검색/결과:*?"<>|\n')
+
+    assert "/" not in name
+    assert "\\" not in name
+    assert "\n" not in name
+    assert name.startswith("검색")
+    window.close()
+
+
+def test_progress_dialog_close_button_requests_cancel():
+    app = _get_app()
+    dialog = ProgressDialog(title="처리 중")
+    canceled = []
+    dialog.canceled.connect(lambda: canceled.append(True))
+    dialog.show()
+    app.processEvents()
+
+    dialog.close()
+    app.processEvents()
+
+    assert canceled == [True]
+    assert dialog.isVisible() is True
+    dialog.allow_close()
+    dialog.close()
+
+
+def test_auto_model_load_skips_when_selected_model_not_downloaded(monkeypatch, tmp_path):
+    qa = RegulationQASystem()
+    window = _make_window(monkeypatch, tmp_path, qa)
+    calls = {"load": 0}
+    monkeypatch.setattr(window, "_load_model", lambda: calls.__setitem__("load", calls["load"] + 1))
+    monkeypatch.setattr(
+        window,
+        "_get_model_download_states",
+        lambda force_refresh=False: {
+            name: {"model_id": model_id, "downloaded": False, "size_bytes": 0, "cache_path": ""}
+            for name, model_id in AppConfig.AVAILABLE_MODELS.items()
+        },
+    )
+
+    window._maybe_auto_load_model()
+
+    assert calls["load"] == 0
+    assert window.folder_btn.isEnabled() is True
     window.close()
 
 

@@ -53,6 +53,45 @@ class PersistenceTest(unittest.TestCase):
             self.assertTrue(saved["keep_search_text"])
             self.assertEqual(saved["schema_version"], AppConfig.CONFIG_SCHEMA_VERSION)
 
+    def test_config_manager_recovers_invalid_v4_values(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg_path = os.path.join(td, "config.json")
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "schema_version": 4,
+                        "model": "unknown",
+                        "font": "huge",
+                        "hybrid": "not-bool",
+                        "recursive": "yes",
+                        "ocr_engine": "other",
+                        "ocr_languages": "",
+                        "sort_by": "unknown",
+                        "filters": {"extension": ".exe", "filename": 123, "path": None},
+                    },
+                    f,
+                    ensure_ascii=False,
+                )
+
+            with patch("regfinder.persistence.get_config_path", return_value=cfg_path):
+                manager = ConfigManager()
+                cfg = manager.load()
+                manager.save(cfg)
+                manager.flush()
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    saved = json.load(f)
+
+            self.assertEqual(cfg["schema_version"], AppConfig.CONFIG_SCHEMA_VERSION)
+            self.assertEqual(cfg["model"], AppConfig.DEFAULT_MODEL)
+            self.assertEqual(cfg["font"], AppConfig.DEFAULT_FONT_SIZE)
+            self.assertTrue(cfg["hybrid"])
+            self.assertTrue(cfg["recursive"])
+            self.assertEqual(cfg["ocr_engine"], "tesseract")
+            self.assertEqual(cfg["ocr_languages"], "kor+eng")
+            self.assertEqual(cfg["sort_by"], "score_desc")
+            self.assertEqual(cfg["filters"]["extension"], "")
+            self.assertEqual(saved["schema_version"], AppConfig.CONFIG_SCHEMA_VERSION)
+
     def test_recent_folders_store_dedup_and_order(self):
         with tempfile.TemporaryDirectory() as td:
             with patch("regfinder.persistence.get_data_directory", return_value=td):

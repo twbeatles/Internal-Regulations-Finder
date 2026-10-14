@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import sys
 
-from PyQt6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication
 
 from ..ui.main_window import MainWindow
 from ..search.qa_system import RegulationQASystem

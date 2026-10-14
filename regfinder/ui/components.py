@@ -5,9 +5,9 @@ import json
 import os
 from typing import Any, Callable, Dict, List, Sequence
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QMouseEvent, QTextCharFormat, QTextCursor
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QFont, QMouseEvent, QTextCharFormat, QTextCursor
+from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QDialogButtonBox,
@@ -205,7 +205,7 @@ class FileLinkLabel(QLabel):
 
 
 class SearchProgressCard(QFrame):
-    canceled = pyqtSignal()
+    canceled = Signal()
 
     def __init__(self, query: str, filter_text: str, sort_text: str):
         super().__init__()
@@ -478,7 +478,7 @@ class EmptyStateWidget(QFrame):
 class ProgressDialog(QDialog):
     """문서 처리 및 모델 다운로드 진행 상황을 표시하는 모달 다이얼로그"""
 
-    canceled = pyqtSignal()
+    canceled = Signal()
 
     def __init__(self, parent=None, title: str = "처리 중"):
         super().__init__(parent)

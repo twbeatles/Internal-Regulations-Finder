@@ -8,7 +8,7 @@ from typing import cast
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication, QDialog, QLabel, QMessageBox, QPushButton
+from PySide6.QtWidgets import QApplication, QDialog, QLabel, QMessageBox, QPushButton
 
 from regfinder.app_types import AppConfig, FileInfo, FileStatus, TaskResult
 from regfinder.file_utils import FileUtils

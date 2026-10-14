@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import sys
 
-from PyQt6.QtGui import QFont, QFontDatabase
+from PySide6.QtGui import QFont, QFontDatabase
 
 WINDOWS_UI_FONT_CANDIDATES = ("Malgun Gothic", "맑은 고딕")
 

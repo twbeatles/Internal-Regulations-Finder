@@ -9,7 +9,7 @@ import traceback
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from PyQt6.QtCore import QThread, pyqtSignal
+from PySide6.QtCore import QThread, Signal
 
 from ..core.types import AppConfig, TaskResult
 from ..core.runtime import (
@@ -53,8 +53,8 @@ class BaseWorkerThread(QThread):
 
 
 class ModelLoaderThread(BaseWorkerThread):
-    progress = pyqtSignal(str)
-    finished = pyqtSignal(object)
+    progress = Signal(str)
+    finished = Signal(object)
     
     def __init__(self, qa, model_name):
         super().__init__("MODEL")
@@ -76,8 +76,8 @@ class ModelLoaderThread(BaseWorkerThread):
 
 class ModelDownloadThread(BaseWorkerThread):
     """선택된 모델을 오프라인 사용을 위해 다운로드"""
-    progress = pyqtSignal(int, str)
-    finished = pyqtSignal(object)
+    progress = Signal(int, str)
+    finished = Signal(object)
     
     def __init__(self, selected_models: Optional[List[Tuple[str, str]]] = None):
         super().__init__("DOWNLOAD")
@@ -228,8 +228,8 @@ class ModelDownloadThread(BaseWorkerThread):
 
 
 class DocumentProcessorThread(BaseWorkerThread):
-    progress = pyqtSignal(int, str)
-    finished = pyqtSignal(object)
+    progress = Signal(int, str)
+    finished = Signal(object)
     
     def __init__(
         self,
@@ -263,8 +263,8 @@ class DocumentProcessorThread(BaseWorkerThread):
 
 
 class SearchThread(BaseWorkerThread):
-    progress = pyqtSignal(str)
-    finished = pyqtSignal(object)
+    progress = Signal(str)
+    finished = Signal(object)
     
     def __init__(self, qa, query, k, hybrid, filters=None, sort_by: str = "score_desc"):
         super().__init__("SEARCH")
@@ -298,7 +298,7 @@ class SearchThread(BaseWorkerThread):
 
 
 class CacheUsageRefreshThread(BaseWorkerThread):
-    finished = pyqtSignal(object)
+    finished = Signal(object)
 
     def __init__(self, qa):
         super().__init__("CACHE")

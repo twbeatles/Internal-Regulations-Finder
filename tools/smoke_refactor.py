@@ -18,7 +18,7 @@ if str(ROOT) not in sys.path:
 def compile_targets() -> None:
     targets: List[Path] = []
     targets.extend((ROOT / "regfinder").rglob("*.py"))
-    targets.append(next(ROOT.glob("*PyQt6.py")))
+    targets.append(next(ROOT.glob("*PySide6.py")))
     for target in sorted(targets):
         py_compile.compile(str(target), doraise=True)
     print(f"[smoke] py_compile ok ({len(targets)} files)")

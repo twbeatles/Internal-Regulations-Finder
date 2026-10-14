@@ -8,9 +8,9 @@ import sys
 from datetime import datetime
 from typing import Mapping
 
-from PyQt6.QtCore import QTimer, Qt
-from PyQt6.QtGui import QCloseEvent, QFont
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QTimer, Qt
+from PySide6.QtGui import QCloseEvent, QFont
+from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QDialog,

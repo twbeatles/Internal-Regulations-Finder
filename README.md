@@ -1,7 +1,7 @@
 # 📚 사내 규정 검색기 v9.3
 
 > 로컬 AI 기반 사내 규정 문서 검색 프로그램
-> PyQt6 GUI | 하이브리드 검색(Vector + BM25) | 초기 BM25 인덱싱 | OCR 보강 옵션 | 오프라인 모델 지원
+> PySide6 GUI | 하이브리드 검색(Vector + BM25) | 초기 BM25 인덱싱 | OCR 보강 옵션 | 오프라인 모델 지원
 
 ---
 
@@ -55,7 +55,7 @@
 ### 1) 의존성 설치
 
 ```bash
-pip install PyQt6 torch sentence-transformers scikit-learn pillow langchain-huggingface langchain-community langchain-text-splitters langchain-core faiss-cpu python-docx pypdf olefile charset-normalizer
+pip install PySide6 torch sentence-transformers scikit-learn pillow langchain-huggingface langchain-community langchain-text-splitters langchain-core faiss-cpu python-docx pypdf olefile charset-normalizer
 ```
 
 선택형 PDF OCR을 사용하려면 Python 패키지와 별도 Tesseract 실행 파일/언어 데이터를 설치합니다.
@@ -69,7 +69,7 @@ pip install pytesseract PyMuPDF
 ### 2) 앱 실행
 
 ```bash
-python "사내 규정검색기 v9 PyQt6.py"
+python "사내 규정검색기 v9.py"
 ```
 
 기존 한국어 엔트리 파일은 호환 래퍼이며 내부적으로 `regfinder.app_main.main()`을 호출합니다.
@@ -80,7 +80,7 @@ python "사내 규정검색기 v9 PyQt6.py"
 
 - `pyrightconfig.json`을 저장소 기준 Pylance/Pyright 설정으로 사용
 - 기준 타입 체크 레벨: `pythonVersion = 3.14`, `typeCheckingMode = standard`
-- optional GUI/test 의존성(`PyQt6`, `pytest`) 미설치 환경에서도 내부 타입 오류에 집중할 수 있도록 missing-import 계열 진단은 저장소 설정에서 완화
+- optional GUI/test 의존성(`PySide6`, `pytest`) 미설치 환경에서도 내부 타입 오류에 집중할 수 있도록 missing-import 계열 진단은 저장소 설정에서 완화
 - `.editorconfig` + `.gitattributes`로 추적 텍스트 파일의 `UTF-8(no BOM)`, `LF`, final newline 정책을 고정
 - `.vscode/settings.json`으로 VSCode의 workspace Pylance 범위, extra path, missing-import severity, Windows 터미널 UTF-8 Python 출력을 고정
 - `ModelDownloadState` 타입 계약과 `tests/test_repo_text_encoding.py` 회귀 테스트로 모델 상태 추론/인코딩 검증을 고정
@@ -123,13 +123,13 @@ python "사내 규정검색기 v9 PyQt6.py"
 python -m pyright .
 python tools/smoke_refactor.py
 python tools/benchmark_performance.py
-python -m py_compile "사내 규정검색기 v9 PyQt6.spec"
+python -m py_compile "사내 규정검색기 v9.spec"
 python -m unittest discover -s tests -v
 python -m pytest -q
 ```
 
 - 기준선: `python -m pyright .` 0 errors
-- 2026-04-28 확인: `python -m py_compile "사내 규정검색기 v9 PyQt6.spec"` 통과
+- 2026-04-28 확인: `python -m py_compile "사내 규정검색기 v9.spec"` 통과
 - 2026-04-28 확인: `python -m pytest -q` 통과
 - 추적 텍스트 파일은 `UTF-8(no BOM)` 기준 유지
 - Windows PowerShell/Python 출력에서 한글이 깨져 보여도 실제 UTF-8 파일 손상과는 별개일 수 있음
@@ -162,7 +162,7 @@ python -m pytest -q
 
 ```bash
 pip install pyinstaller
-pyinstaller "사내 규정검색기 v9 PyQt6.spec"
+pyinstaller "사내 규정검색기 v9.spec"
 ```
 
 출력: `dist/사내 규정검색기 v9.3_onefile.exe`
@@ -175,7 +175,7 @@ pyinstaller "사내 규정검색기 v9 PyQt6.spec"
 - `regfinder.search.text`는 검색 정규화 helper로서 spec hidden import 목록에도 반영
 - 선택형 Tesseract OCR은 `pytesseract`, `PyMuPDF(fitz)`, 외부 Tesseract 실행 파일이 모두 있을 때만 동작
 - 모델 다운로드 완료 여부는 snapshot metadata(`config.json`/`modules.json` 계열)와 가중치 파일(`.bin`/`.safetensors`/`.onnx`)을 함께 확인
-- 현재 onefile 크기는 `torch` / `faiss` / `PyQt6` 포함으로 인해 약 300MB 수준
+- 현재 onefile 크기는 `torch` / `faiss` / `PySide6` 포함으로 인해 약 300MB 수준
 
 ---
 

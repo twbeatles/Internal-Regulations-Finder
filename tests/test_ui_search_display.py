@@ -6,8 +6,8 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtGui import QTextCursor
-from PyQt6.QtWidgets import QApplication, QLabel, QPushButton, QTextEdit
+from PySide6.QtGui import QTextCursor
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QTextEdit
 from typing import cast
 
 from regfinder.ui_components import ResultCard, ResultDetailDialog, SearchHistory

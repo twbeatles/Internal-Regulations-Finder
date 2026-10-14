@@ -5,7 +5,7 @@
 - [ ] `python -m pyright .` 통과 (`0 errors`)
 - [ ] `python tools/smoke_refactor.py` 통과
 - [ ] `python tools/benchmark_performance.py` 실행 확인
-- [ ] `python -m py_compile "사내 규정검색기 v9 PyQt6.spec"` 통과
+- [ ] `python -m py_compile "사내 규정검색기 v9.spec"` 통과
 - [ ] `python -m unittest discover -s tests -v` 통과
 - [ ] `python -m pytest -q` 통과
 - [ ] 추적 텍스트 파일 `UTF-8(no BOM)` / `LF` 유지 확인
@@ -19,7 +19,7 @@
 python -m pyright .
 python tools/smoke_refactor.py
 python tools/benchmark_performance.py
-python -m py_compile "사내 규정검색기 v9 PyQt6.spec"
+python -m py_compile "사내 규정검색기 v9.spec"
 python -m unittest discover -s tests -v
 python -m pytest -q
 ```

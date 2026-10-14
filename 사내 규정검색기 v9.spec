@@ -1,10 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-사내 규정검색기 v9.3 (PyQt6) - Onefile Build
+사내 규정검색기 v9.3 (PySide6) - Onefile Build
 단일 EXE 빌드 설정
 
 빌드 명령:
-    pyinstaller "사내 규정검색기 v9 PyQt6.spec"
+    pyinstaller "사내 규정검색기 v9.spec"
 
 출력:
     dist/사내 규정검색기 v9.3_onefile.exe
@@ -98,12 +98,12 @@ hiddenimports = [
     'regfinder.ui.window_mixins',
     'regfinder.ui.main_window',
 
-    # PyQt6 runtime
-    'PyQt6',
-    'PyQt6.QtCore',
-    'PyQt6.QtGui',
-    'PyQt6.QtWidgets',
-    'PyQt6.sip',
+    # PySide6 runtime
+    'PySide6',
+    'PySide6.QtCore',
+    'PySide6.QtGui',
+    'PySide6.QtWidgets',
+    'shiboken6',
 
     # NLP / embeddings runtime
     'torch',
@@ -139,7 +139,7 @@ excludes = [
     'pytest', 'black', 'pylint', 'mypy', 'sphinx',
     'pyright',
     'tkinter', '_tkinter', 'Tkinter',
-    'PySide6', 'PySide2', 'PyQt5',
+    'PyQt6', 'PySide2', 'PyQt5',
     'tensorflow', 'keras',
     'flask', 'django',
     'plotly', 'seaborn', 'bokeh',
@@ -170,7 +170,7 @@ excludes = [
 # 분석 설정
 # ============================================================================
 a = Analysis(
-    ['사내 규정검색기 v9 PyQt6.py'],
+    ['사내 규정검색기 v9.py'],
     pathex=[os.path.abspath('.')],
     binaries=[],
     datas=sentence_transformers_datas + sentence_transformers_metadata + sklearn_metadata + pillow_metadata,

@@ -8,7 +8,7 @@
     "regfinder",
     "tests",
     "tools",
-    "사내 규정검색기 v9 PyQt6.py"
+    "사내 규정검색기 v9.py"
   ],
   "exclude": [
     "**/__pycache__",

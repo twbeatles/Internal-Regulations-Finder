@@ -10,17 +10,17 @@
 
 | Old | New |
 |---|---|
-| `사내 규정검색기 v9 PyQt6.py` | `regfinder/app_types.py` |
-| `사내 규정검색기 v9 PyQt6.py` | `regfinder/runtime.py` |
-| `사내 규정검색기 v9 PyQt6.py` | `regfinder/file_utils.py` |
-| `사내 규정검색기 v9 PyQt6.py` | `regfinder/bm25.py` |
-| `사내 규정검색기 v9 PyQt6.py` | `regfinder/document_extractor.py` |
-| `사내 규정검색기 v9 PyQt6.py` | `regfinder/qa_system.py` |
-| `사내 규정검색기 v9 PyQt6.py` | `regfinder/workers.py` |
-| `사내 규정검색기 v9 PyQt6.py` | `regfinder/ui_style.py` |
-| `사내 규정검색기 v9 PyQt6.py` | `regfinder/ui_components.py` |
-| `사내 규정검색기 v9 PyQt6.py` | `regfinder/main_window.py` |
-| `사내 규정검색기 v9 PyQt6.py` | `regfinder/app_main.py` |
+| `사내 규정검색기 v9.py` | `regfinder/app_types.py` |
+| `사내 규정검색기 v9.py` | `regfinder/runtime.py` |
+| `사내 규정검색기 v9.py` | `regfinder/file_utils.py` |
+| `사내 규정검색기 v9.py` | `regfinder/bm25.py` |
+| `사내 규정검색기 v9.py` | `regfinder/document_extractor.py` |
+| `사내 규정검색기 v9.py` | `regfinder/qa_system.py` |
+| `사내 규정검색기 v9.py` | `regfinder/workers.py` |
+| `사내 규정검색기 v9.py` | `regfinder/ui_style.py` |
+| `사내 규정검색기 v9.py` | `regfinder/ui_components.py` |
+| `사내 규정검색기 v9.py` | `regfinder/main_window.py` |
+| `사내 규정검색기 v9.py` | `regfinder/app_main.py` |
 
 ---
 
@@ -80,8 +80,8 @@
 
 ## Compatibility Notes
 
-- 실행 엔트리 유지: `python "사내 규정검색기 v9 PyQt6.py"`
-- PyInstaller 진입 유지: `사내 규정검색기 v9 PyQt6.spec`
+- 실행 엔트리 유지: `python "사내 규정검색기 v9.py"`
+- PyInstaller 진입 유지: `사내 규정검색기 v9.spec`
 - 기존 public import 유지: `regfinder.qa_system`, `regfinder.main_window`, `regfinder.workers`, `regfinder.search_text` 등은 compatibility wrapper로 유지
 - wrapper는 실제 구현 모듈로 alias되어 기존 테스트 monkeypatch 경로도 동일하게 동작
 - spec hiddenimports에 신규 internal 모듈 추가 반영

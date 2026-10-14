@@ -42,9 +42,15 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy
 
 block_cipher = None
 
-sentence_transformers_hiddenimports = collect_submodules('sentence_transformers')
-sentence_transformers_datas = collect_data_files('sentence_transformers')
-sentence_transformers_metadata = copy_metadata('sentence-transformers')
+try:
+    sentence_transformers_hiddenimports = collect_submodules('sentence_transformers')
+    sentence_transformers_datas = collect_data_files('sentence_transformers')
+    sentence_transformers_metadata = copy_metadata('sentence-transformers')
+except Exception:
+    # Optional AI-search stack (unused by current source); build without it.
+    sentence_transformers_hiddenimports = []
+    sentence_transformers_datas = []
+    sentence_transformers_metadata = []
 charset_normalizer_hiddenimports = collect_submodules('charset_normalizer')
 sklearn_metadata = copy_metadata('scikit-learn')
 pillow_metadata = copy_metadata('pillow')
